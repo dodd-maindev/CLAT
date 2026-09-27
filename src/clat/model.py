@@ -46,6 +46,9 @@ class CLAT(LightningModule):
         training_int_prob: Optional[float] = None,
         training_int_milestone: int = 0,
         eval_int: bool = False,
+        use_olap: bool = False,
+        olap_initial_power: float = 3.0,
+        olap_ortho_weight: float = 0.05,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -57,6 +60,7 @@ class CLAT(LightningModule):
         self.training_int_prob = training_int_prob
         self.training_int_milestone = training_int_milestone
         self.eval_int = eval_int
+        self.use_olap = use_olap
 
         self.model = load_encoder(
             arch_name,
@@ -64,6 +68,9 @@ class CLAT(LightningModule):
             num_classes=self.num_disease,
             num_lesions=self.num_lesions,
             img_size=img_size,
+            use_olap=use_olap,
+            olap_initial_power=olap_initial_power,
+            olap_ortho_weight=olap_ortho_weight,
         )
         if "No DR" in disease_names:
             knowledge_embeds_path = "data/FLAIR_DR_with_EK.pt"
@@ -129,10 +136,12 @@ class CLAT(LightningModule):
             else 0
         )
 
+        ortho_loss = getattr(self.model, "current_ortho_loss", 0.0)
         loss = (
             self.disease_loss_weight * disease_loss
             + self.lesion_loss_weight * lesion_loss
             + self.KG_loss_weight * KG_loss
+            + ortho_loss
         )
 
         self.log(
@@ -148,6 +157,28 @@ class CLAT(LightningModule):
             batch_size=bs,
             sync_dist=True,
         )
+
+        if self.use_olap:
+            self.log(
+                f"loss/{stage}_ortho_loss",
+                ortho_loss,
+                prog_bar=False,
+                batch_size=bs,
+                sync_dist=True,
+            )
+            if stage == "train" and hasattr(self.model, "olap_head") and self.model.olap_head is not None:
+                mean_local_weight = self.model.olap_head.dynamic_gate.local_weights.mean()
+                self.log(
+                    "olap/mean_local_weight",
+                    mean_local_weight,
+                    prog_bar=False,
+                    batch_size=bs,
+                    sync_dist=True,
+                )
+
+        if stage == "val":
+            self.log("stats/val_lesion_std", output.lesion_logits.std(), prog_bar=False, batch_size=bs, sync_dist=True)
+            self.log("stats/val_disease_std", output.disease_logits.std(), prog_bar=False, batch_size=bs, sync_dist=True)
 
         ret_dict = {"loss": loss, **output._asdict()}
 

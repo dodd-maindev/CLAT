@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
 
+from clat.olap import OrthogonalAdaptivePoolingConceptHead
 from clat.utils import CLATOutput, CrossAttention, load_milvt_ckpt, load_timm_weights
 
 __all__ = [
@@ -142,12 +143,25 @@ class ViTConcept(vit.VisionTransformer):
         self,
         num_lesions,
         img_size=224,
+        use_olap: bool = False,
+        olap_initial_power: float = 3.0,
+        olap_ortho_weight: float = 0.05,
         *args,
         **kwargs,
     ):
         super().__init__(img_size=img_size, block_fn=Block, **kwargs)
         self.img_size = img_size
         self.num_lesions = num_lesions
+        self.use_olap = use_olap
+        if self.use_olap:
+            self.olap_head = OrthogonalAdaptivePoolingConceptHead(
+                embed_dim=self.embed_dim,
+                num_concepts=self.num_lesions,
+                initial_power=olap_initial_power,
+                ortho_weight=olap_ortho_weight,
+            )
+        else:
+            self.olap_head = None
         self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
         self.num_patches = num_patches = self.patch_embed.num_patches
@@ -246,25 +260,37 @@ class ViTConcept(vit.VisionTransformer):
             patch_tokens = torch.reshape(patch_tokens, [n, int(p**0.5), int(p**0.5), c])
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])
         patch_tokens = patch_tokens.contiguous()
-        local_lesion_tokens = self.head(patch_tokens)
-        local_lesion_token_pooled = F.adaptive_max_pool2d(local_lesion_tokens, (1, 1))
-        local_lesion_logits = torch.flatten(local_lesion_token_pooled, 1)
-
-        global_lesion_logits = lesion_tokens.mean(-1)
-        lesion_logits = (local_lesion_logits + global_lesion_logits) / 2.0
+        if self.olap_head is not None:
+            lesion_logits, local_lesion_logits, global_lesion_logits, ortho_loss = (
+                self.olap_head(patch_tokens, lesion_tokens)
+            )
+            self.current_ortho_loss = ortho_loss
+        else:
+            local_lesion_tokens = self.head(patch_tokens)
+            local_lesion_token_pooled = F.adaptive_max_pool2d(local_lesion_tokens, (1, 1))
+            local_lesion_logits = torch.flatten(local_lesion_token_pooled, 1)
+            global_lesion_logits = lesion_tokens.mean(-1)
+            lesion_logits = (local_lesion_logits + global_lesion_logits) / 2.0
+            self.current_ortho_loss = torch.tensor(0.0, device=lesion_tokens.device)
 
         if int_prob is not None:
             bs_size = lesion_logits.size(0)
+            sampled = torch.bernoulli(
+                torch.full((bs_size,), int_prob, device=lesion_logits.device)
+            ).nonzero()
             intervene_sample_idx = (
-                torch.bernoulli(torch.tensor([int_prob] * bs_size)).nonzero().squeeze()
+                torch.atleast_1d(sampled.squeeze(-1)) if sampled.numel() > 0 else None
             )
 
         if intervene_sample_idx is not None and lesion_lbls is not None:
             lesion_probs = torch.sigmoid(lesion_logits)
             int_precision = torch.clamp(lesion_lbls, 0.01, 0.99)
-            target_scale = (
-                torch.log(int_precision / (1 - int_precision)) / global_lesion_logits
-            )
+            target_logits = torch.log(int_precision / (1.0 - int_precision))
+            denom = global_lesion_logits
+            sign = torch.sign(denom)
+            sign = torch.where(sign == 0.0, torch.ones_like(sign), sign)
+            safe_denom = sign * torch.clamp(torch.abs(denom), min=0.05)
+            target_scale = target_logits / safe_denom
             lesion_int_scale = torch.where(
                 lesion_lbls == lesion_probs.round(), 1.0, target_scale
             )
@@ -276,6 +302,8 @@ class ViTConcept(vit.VisionTransformer):
             lesion_tokens_i = lesion_tokens * (
                 1 - mask.unsqueeze(-1)
             ) + lesion_tokens * mask.unsqueeze(-1) * lesion_int_scale.unsqueeze(-1)
+            intervened_logits = torch.where(mask.bool(), target_logits, lesion_logits)
+            lesion_logits = intervened_logits
         else:
             lesion_tokens_i = lesion_tokens
 

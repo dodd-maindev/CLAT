@@ -34,11 +34,13 @@ def load_encoder(
     num_lesions: int,
     img_size: int,
     pretrained: bool = True,
+    **kwargs,
 ) -> Union[CaiTConcept, ViTConcept]:
     model = EncoderType(name).load_func(
         num_classes=num_classes,
         num_lesions=num_lesions,
         img_size=img_size,
         pretrained=pretrained,
+        **kwargs,
     )
     return model
