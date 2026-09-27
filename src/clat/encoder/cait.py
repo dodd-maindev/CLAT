@@ -447,14 +447,11 @@ class CaiTConcept(cait_models):
         self,
         num_lesions,
         decay_parameter=0.996,
-        lesion_proto_count: int = 1,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.num_concepts = num_lesions
-        self.lesion_proto_count = lesion_proto_count
-        self.num_concept_tokens = num_lesions * lesion_proto_count
         self.decay_parameter = decay_parameter
         self.head = nn.Conv2d(self.embed_dim, self.num_concepts, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
@@ -465,16 +462,15 @@ class CaiTConcept(cait_models):
         self.num_patches = num_patches
 
         self.concept_cls_token = nn.Parameter(
-            torch.zeros(1, self.num_concept_tokens, self.embed_dim)
+            torch.zeros(1, self.num_concepts, self.embed_dim)
         )
         self.pos_embed_concept_cls = nn.Parameter(
-            torch.zeros(1, self.num_concept_tokens, self.embed_dim)
+            torch.zeros(1, self.num_concepts, self.embed_dim)
         )
         self.pos_embed_pat = nn.Parameter(torch.zeros(1, num_patches, self.embed_dim))
         self.class_tokens = nn.Parameter(
             torch.zeros(1, self.num_classes, self.embed_dim)
         )
-        self.prototype_pool = nn.Linear(self.embed_dim, 1)
 
         self.cross_attention = CrossAttention(
             dim=self.embed_dim,
@@ -486,10 +482,9 @@ class CaiTConcept(cait_models):
         trunc_normal_(self.concept_cls_token, std=0.02)
         trunc_normal_(self.pos_embed_pat, std=0.02)
         trunc_normal_(self.class_tokens, std=0.02)
-        self.prototype_pool.apply(self._init_weights)
 
     def interpolate_pos_encoding(self, x, w, h):
-        npatch = x.shape[1] - self.num_concept_tokens
+        npatch = x.shape[1] - self.num_concepts
         N = self.num_patches
         if int(npatch) == N and int(w) == int(h):
             return self.pos_embed_pat
@@ -543,44 +538,32 @@ class CaiTConcept(cait_models):
         x = self.norm(x)
 
         return (
-            x[:, 0 : self.num_concept_tokens].reshape(
-                B, self.num_concepts, self.lesion_proto_count, self.embed_dim
-            ),
-            x[:, self.num_concept_tokens :],
+            x[:, 0 : self.num_concepts],
+            x[:, self.num_concepts :],
             attn_weights_concepts,
             attn_weights_patches,
             concept_embeddings,
         )
-
-    def aggregate_concept_prototypes(self, concept_proto_tokens):
-        if self.lesion_proto_count == 1:
-            return concept_proto_tokens.squeeze(2)
-        proto_scores = self.prototype_pool(concept_proto_tokens).squeeze(-1)
-        proto_weights = proto_scores.softmax(dim=2).unsqueeze(-1)
-        return torch.sum(proto_weights * concept_proto_tokens, dim=2)
 
     def forward(
         self,
         x,
         n_layers=2,
         return_attn=False,
-        return_cross_attn=False,
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
-        lesion_token_mask: Optional[torch.Tensor] = None,
     ):
         w, h = x.shape[2:]
         (
-            concept_proto_tokens,
+            concept_tokens,
             patch_tokens,
             attn_weights_concepts,
             attn_weights_patches,
             all_layers_concept_token,
         ) = self.forward_features(x)
-        concept_tokens = self.aggregate_concept_prototypes(concept_proto_tokens)
 
         n, p, c = patch_tokens.shape  # B * 196 * 384
         if w != h:
@@ -614,13 +597,8 @@ class CaiTConcept(cait_models):
         if intervene_sample_idx is not None and lesion_lbls is not None:
             lesion_probs = torch.sigmoid(concept_logits)
             int_precision = torch.clamp(lesion_lbls, 0.01, 0.99)
-            denom = torch.where(
-                concept_logits.abs() < 1e-4,
-                concept_logits.sign().clamp(min=0) * 2e-4 - 1e-4,
-                concept_logits,
-            )
             target_scale = (
-                torch.log(int_precision / (1 - int_precision)) / denom
+                torch.log(int_precision / (1 - int_precision)) / concept_patch_logits
             )
             lesion_int_scale = torch.where(
                 lesion_lbls == lesion_probs.round(), 1.0, target_scale
@@ -635,9 +613,6 @@ class CaiTConcept(cait_models):
             ) + concept_tokens * mask.unsqueeze(-1) * lesion_int_scale.unsqueeze(-1)
         else:
             concept_logits_i = concept_tokens
-
-        if lesion_token_mask is not None:
-            concept_logits_i = concept_logits_i * (1 - lesion_token_mask.unsqueeze(-1))
 
         out_value, cross_attn_maps = self.cross_attention(
             self.class_tokens.repeat(n, 1, 1), concept_logits_i
@@ -656,15 +631,8 @@ class CaiTConcept(cait_models):
             mtatt = (
                 attn_weights_concepts[-n_layers:]
                 .mean(2)
-                .mean(0)[:, 0 : self.num_concept_tokens, self.num_concept_tokens :]
-                .reshape(
-                    n,
-                    self.num_concepts,
-                    self.lesion_proto_count,
-                    h,
-                    w,
-                )
-                .mean(2)
+                .mean(0)[:, :, self.num_concepts :]
+                .reshape([n, c, h, w])
             )  # B * num_lesions * 196 => B * num_lesions * 14 * 14, attn of class token and patch token
             patch_attn = torch.stack(attn_weights_patches).mean(
                 2
@@ -683,20 +651,13 @@ class CaiTConcept(cait_models):
                 class_logits,
                 concept_logits,
                 concept_tokens,
-                concept_proto_tokens,
                 cams,
                 patch_attn,
                 cross_attn_maps,
             )
 
         return CLATOutput(
-            class_logits,
-            concept_logits,
-            concept_tokens,
-            concept_proto_tokens,
-            None,
-            None,
-            cross_attn_maps if return_cross_attn else None,
+            class_logits, concept_logits, concept_tokens, None, None, None
         )
 
     def learn_concept_embed(self):

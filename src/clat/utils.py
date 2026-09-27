@@ -29,7 +29,6 @@ CLATOutput = namedtuple(
         "disease_logits",
         "lesion_logits",
         "lesion_tokens",
-        "lesion_proto_tokens",
         "cams",
         "patch_attns",
         "cross_attn_maps",

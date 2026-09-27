@@ -102,25 +102,30 @@ class Block(vit.Block):
         drop_path: float = 0,
         act_layer: nn.Module = nn.GELU,  # type: ignore
         norm_layer: nn.Module = nn.LayerNorm,  # type: ignore
-        mlp_layer: nn.Module = vit.Mlp,  # type: ignore
-        **kwargs,
+        mlp_layer: nn.Module = ...,
     ) -> None:
-        kwargs.pop("attn_layer", None)
         super().__init__(
-            dim=dim,
+            dim,
+            num_heads,
+            mlp_ratio,
+            qkv_bias,
+            qk_norm,
+            proj_drop,
+            attn_drop,
+            init_values,
+            drop_path,
+            act_layer,
+            norm_layer,
+            mlp_layer,
+        )
+        self.attn = Attention(
+            dim,
             num_heads=num_heads,
-            mlp_ratio=mlp_ratio,
             qkv_bias=qkv_bias,
             qk_norm=qk_norm,
-            proj_drop=proj_drop,
             attn_drop=attn_drop,
-            init_values=init_values,
-            drop_path=drop_path,
-            act_layer=act_layer,
+            proj_drop=proj_drop,
             norm_layer=norm_layer,
-            mlp_layer=mlp_layer,
-            attn_layer=Attention,
-            **kwargs,
         )
 
     def forward(self, x):
@@ -137,30 +142,26 @@ class ViTConcept(vit.VisionTransformer):
         self,
         num_lesions,
         img_size=224,
-        lesion_proto_count: int = 1,
         *args,
         **kwargs,
     ):
         super().__init__(img_size=img_size, block_fn=Block, **kwargs)
         self.img_size = img_size
         self.num_lesions = num_lesions
-        self.lesion_proto_count = lesion_proto_count
-        self.num_lesion_tokens = num_lesions * lesion_proto_count
         self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
         self.num_patches = num_patches = self.patch_embed.num_patches
 
         self.lesion_tokens = nn.Parameter(
-            torch.zeros(1, self.num_lesion_tokens, self.embed_dim)
+            torch.zeros(1, self.num_lesions, self.embed_dim)
         )
         self.pos_embed_lesion = nn.Parameter(
-            torch.zeros(1, self.num_lesion_tokens, self.embed_dim)
+            torch.zeros(1, self.num_lesions, self.embed_dim)
         )
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, self.embed_dim))
         self.disease_tokens = nn.Parameter(
             torch.zeros(1, self.num_classes, self.embed_dim)
         )
-        self.prototype_pool = nn.Linear(self.embed_dim, 1)
 
         self.cross_attention = CrossAttention(
             dim=self.embed_dim,
@@ -172,10 +173,9 @@ class ViTConcept(vit.VisionTransformer):
         trunc_normal_(self.lesion_tokens, std=0.02)
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.disease_tokens, std=0.02)
-        self.prototype_pool.apply(self._init_weights)
 
     def interpolate_pos_encoding(self, x, w, h):
-        npatch = x.shape[1] - self.num_lesion_tokens
+        npatch = x.shape[1] - self.num_lesions
         N = self.num_patches
         if int(npatch) == N and int(w) == int(h):
             return self.pos_embed
@@ -210,10 +210,10 @@ class ViTConcept(vit.VisionTransformer):
             x = x + self.pos_embed
         x = self.pos_drop(x)
 
-        lesion_proto_tokens = self.lesion_tokens.expand(B, -1, -1)
-        lesion_proto_tokens = lesion_proto_tokens + self.pos_embed_lesion
+        lesion_tokens = self.lesion_tokens.expand(B, -1, -1)
+        lesion_tokens = lesion_tokens + self.pos_embed_lesion
 
-        x = torch.cat((lesion_proto_tokens, x), dim=1)
+        x = torch.cat((lesion_tokens, x), dim=1)
         x = self.pos_drop(x)
         attn_weights = []
 
@@ -221,39 +221,21 @@ class ViTConcept(vit.VisionTransformer):
             x, weights_i = blk(x)
             attn_weights.append(weights_i)
 
-        lesion_proto_tokens = x[:, 0 : self.num_lesion_tokens]
-        lesion_proto_tokens = lesion_proto_tokens.reshape(
-            B, self.num_lesions, self.lesion_proto_count, self.embed_dim
-        )
-        return (
-            lesion_proto_tokens,
-            x[:, self.num_lesion_tokens :],
-            attn_weights,
-        )
-
-    def aggregate_lesion_prototypes(self, lesion_proto_tokens):
-        if self.lesion_proto_count == 1:
-            return lesion_proto_tokens.squeeze(2)
-        proto_scores = self.prototype_pool(lesion_proto_tokens).squeeze(-1)
-        proto_weights = proto_scores.softmax(dim=2).unsqueeze(-1)
-        return torch.sum(proto_weights * lesion_proto_tokens, dim=2)
+        return x[:, 0 : self.num_lesions], x[:, self.num_lesions :], attn_weights
 
     def forward(
         self,
         x,
         n_layers=24,
         return_attn=False,
-        return_cross_attn=False,
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
-        lesion_token_mask: Optional[torch.Tensor] = None,
     ):
         w, h = x.shape[2:]
-        lesion_proto_tokens, patch_tokens, attn_weights = self.forward_features(x)
-        lesion_tokens = self.aggregate_lesion_prototypes(lesion_proto_tokens)
+        lesion_tokens, patch_tokens, attn_weights = self.forward_features(x)
         n, p, c = patch_tokens.shape
 
         if w != h:
@@ -280,14 +262,8 @@ class ViTConcept(vit.VisionTransformer):
         if intervene_sample_idx is not None and lesion_lbls is not None:
             lesion_probs = torch.sigmoid(lesion_logits)
             int_precision = torch.clamp(lesion_lbls, 0.01, 0.99)
-            denom = torch.where(
-                global_lesion_logits.abs() < 1e-4,
-                global_lesion_logits.sign().clamp(min=0) * 2e-4 - 1e-4,
-                global_lesion_logits,
-            )
             target_scale = (
-                torch.log(int_precision / (1 - int_precision))
-                / denom
+                torch.log(int_precision / (1 - int_precision)) / global_lesion_logits
             )
             lesion_int_scale = torch.where(
                 lesion_lbls == lesion_probs.round(), 1.0, target_scale
@@ -303,9 +279,6 @@ class ViTConcept(vit.VisionTransformer):
         else:
             lesion_tokens_i = lesion_tokens
 
-        if lesion_token_mask is not None:
-            lesion_tokens_i = lesion_tokens_i * (1 - lesion_token_mask.unsqueeze(-1))
-
         out_value, cross_attn_maps = self.cross_attention(
             self.disease_tokens.repeat(n, 1, 1), lesion_tokens_i
         )
@@ -313,13 +286,7 @@ class ViTConcept(vit.VisionTransformer):
 
         if not return_attn:
             return CLATOutput(
-                disease_logits,
-                lesion_logits,
-                lesion_tokens,
-                lesion_proto_tokens,
-                None,
-                None,
-                cross_attn_maps if return_cross_attn else None,
+                disease_logits, lesion_logits, lesion_tokens, None, None, None
             )
 
         feature_map = local_lesion_tokens.detach().clone()
@@ -329,19 +296,10 @@ class ViTConcept(vit.VisionTransformer):
         mtatt = (
             attn_weights[-n_layers:]
             .mean(2)
-            .mean(0)[:, 0 : self.num_lesion_tokens, self.num_lesion_tokens :]
-            .reshape(
-                n,
-                self.num_lesions,
-                self.lesion_proto_count,
-                h,
-                w,
-            )
-            .mean(2)
+            .mean(0)[:, 0 : self.num_lesions, self.num_lesions :]
+            .reshape([n, c, h, w])
         )
-        patch_attn = attn_weights[
-            :, :, :, self.num_lesion_tokens :, self.num_lesion_tokens :
-        ]
+        patch_attn = attn_weights[:, :, self.num_lesions :, self.num_lesions :]
         if attention_type == "fused":
             cams = mtatt * feature_map  # B * num_lesions * 14 * 14
             cams = torch.sqrt(cams)
@@ -356,7 +314,6 @@ class ViTConcept(vit.VisionTransformer):
             disease_logits,
             lesion_logits,
             lesion_tokens,
-            lesion_proto_tokens,
             cams,
             patch_attn,
             cross_attn_maps,
