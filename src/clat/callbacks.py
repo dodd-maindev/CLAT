@@ -118,7 +118,9 @@ class MetricsCaculator(Callback):
     def on_test_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
         metrics_dict = self.test_metrics.compute()
         table = test_rs2table(metrics_dict)
-        logging.info(f"\n{table}") if self.verbose else None
+        if self.verbose:
+            print(f"\n{table}")
+            logging.info(f"\n{table}")
         if trainer.log_dir is not None:
             import json, os
             os.makedirs(trainer.log_dir, exist_ok=True)
