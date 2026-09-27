@@ -103,21 +103,23 @@ class Block(vit.Block):
         drop_path: float = 0,
         act_layer: nn.Module = nn.GELU,  # type: ignore
         norm_layer: nn.Module = nn.LayerNorm,  # type: ignore
-        mlp_layer: nn.Module = ...,
+        *args,
+        **kwargs,
     ) -> None:
         super().__init__(
-            dim,
-            num_heads,
-            mlp_ratio,
-            qkv_bias,
-            qk_norm,
-            proj_drop,
-            attn_drop,
-            init_values,
-            drop_path,
-            act_layer,
-            norm_layer,
-            mlp_layer,
+            dim=dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            qkv_bias=qkv_bias,
+            qk_norm=qk_norm,
+            proj_drop=proj_drop,
+            attn_drop=attn_drop,
+            init_values=init_values,
+            drop_path=drop_path,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+            *args,
+            **kwargs,
         )
         self.attn = Attention(
             dim,
