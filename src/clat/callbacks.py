@@ -116,8 +116,19 @@ class MetricsCaculator(Callback):
             )
 
     def on_test_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
-        table = test_rs2table(self.test_metrics.compute())
+        metrics_dict = self.test_metrics.compute()
+        table = test_rs2table(metrics_dict)
         logging.info(f"\n{table}") if self.verbose else None
+        if trainer.log_dir is not None:
+            import json, os
+            os.makedirs(trainer.log_dir, exist_ok=True)
+            output_file = os.path.join(trainer.log_dir, "test_metrics.json")
+            converted = {
+                k: float(v.item()) if hasattr(v, "item") else float(v)
+                for k, v in metrics_dict.items()
+            }
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(converted, f, indent=2)
 
     def on_save_checkpoint(
         self,
