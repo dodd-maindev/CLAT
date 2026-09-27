@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
 
+from clat.olap import OrthogonalAdaptivePoolingConceptHead
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
 
 __all__ = [
@@ -450,9 +451,23 @@ class CaiTConcept(cait_models):
         *args,
         **kwargs,
     ):
+        use_olap: bool = kwargs.pop("use_olap", False)
+        olap_initial_power: float = kwargs.pop("olap_initial_power", 3.0)
+        olap_ortho_weight: float = kwargs.pop("olap_ortho_weight", 0.05)
         super().__init__(*args, **kwargs)
         self.num_concepts = num_lesions
         self.decay_parameter = decay_parameter
+        self.use_olap = use_olap
+        if self.use_olap:
+            self.olap_head = OrthogonalAdaptivePoolingConceptHead(
+                embed_dim=self.embed_dim,
+                num_concepts=self.num_concepts,
+                initial_power=olap_initial_power,
+                ortho_weight=olap_ortho_weight,
+            )
+        else:
+            self.olap_head = None
+        self.current_ortho_loss = torch.tensor(0.0)
         self.head = nn.Conv2d(self.embed_dim, self.num_concepts, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
 
@@ -576,17 +591,24 @@ class CaiTConcept(cait_models):
             )  # B * 14 * 14 * 384
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])  # B * 384 * 14 * 14
         patch_tokens = patch_tokens.contiguous()
-        concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
-
-        # concept_patch maxpooling
-        concept_patch_pooled = F.adaptive_max_pool2d(
-            concept_patch, (1, 1)
-        )  # B * num_lesions * 1 * 1
-        concept_patch_logits = torch.flatten(concept_patch_pooled, 1)  # B * num_lesions
-
-        concept_logits = concept_tokens.mean(-1)
-        # B * num_lesions, mean of class tokens to get class logits
-        concept_logits = (concept_logits + concept_patch_logits) / 2
+        if self.olap_head is not None:
+            (
+                concept_logits,
+                concept_patch_logits,
+                global_concept_logits,
+                ortho_loss,
+                concept_patch,
+            ) = self.olap_head(patch_tokens, concept_tokens)
+            self.current_ortho_loss = ortho_loss
+        else:
+            concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
+            concept_patch_pooled = F.adaptive_max_pool2d(
+                concept_patch, (1, 1)
+            )  # B * num_lesions * 1 * 1
+            concept_patch_logits = torch.flatten(concept_patch_pooled, 1)  # B * num_lesions
+            global_concept_logits = concept_tokens.mean(-1)
+            concept_logits = (global_concept_logits + concept_patch_logits) / 2
+            self.current_ortho_loss = torch.tensor(0.0, device=concept_tokens.device)
 
         if int_prob is not None:
             bs_size = concept_logits.size(0)
