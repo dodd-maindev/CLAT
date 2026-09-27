@@ -53,4 +53,7 @@ trainer:
     - class_path: clat.olap.ConceptTransparencyMonitor
       init_args:
         verbose: true
+    - class_path: clat.olap.LayerDataflowTracer
+      init_args:
+        trace_every_n_epochs: 1
     - class_path: clat.callbacks.GenHeatmap

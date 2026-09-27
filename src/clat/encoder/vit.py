@@ -164,6 +164,8 @@ class ViTConcept(vit.VisionTransformer):
             self.olap_head = None
         self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
+        self.capture_trace = False
+        self.last_forward_trace = {}
         self.num_patches = num_patches = self.patch_embed.num_patches
 
         self.lesion_tokens = nn.Parameter(
@@ -311,6 +313,17 @@ class ViTConcept(vit.VisionTransformer):
             self.disease_tokens.repeat(n, 1, 1), lesion_tokens_i
         )
         disease_logits = out_value.mean(dim=-1)
+
+        if getattr(self, "capture_trace", False):
+            self.last_forward_trace = {
+                "Input Image": {"shape": list(x.shape), "min": float(x.min()), "max": float(x.max())},
+                "Patch Embed Tokens": {"shape": list(patch_tokens.shape), "norm": float(patch_tokens.norm(dim=-1).mean())},
+                "Lesion Tokens Encoded": {"shape": list(lesion_tokens.shape), "norm": float(lesion_tokens.norm(dim=-1).mean())},
+                "Local Spatial Logits": [float(v) for v in local_lesion_logits[0]],
+                "Global Projected Logits": [float(v) for v in global_lesion_logits[0]],
+                "Fused Lesion Logits": [float(v) for v in lesion_logits[0]],
+                "Disease Logits": [float(v) for v in disease_logits[0]],
+            }
 
         if not return_attn:
             return CLATOutput(
