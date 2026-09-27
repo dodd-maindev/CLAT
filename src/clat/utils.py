@@ -68,9 +68,11 @@ def kfold_split(
     kfold: int, fold_num: int, disease_labels: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     skf = StratifiedKFold(n_splits=kfold, shuffle=True, random_state=42)
-    train_idx, val_idx = list(
+    splits = list(
         skf.split(disease_labels, y=disease_labels.iloc[:, 1:].values.argmax(axis=1))
-    )[fold_num]
+    )
+    idx = fold_num if 0 <= fold_num < kfold else (fold_num - 1 if 1 <= fold_num <= kfold else 0)
+    train_idx, val_idx = splits[idx]
     train_disease_labels = disease_labels.iloc[train_idx, :]
     val_disease_labels = disease_labels.iloc[val_idx, :]
     test_disease_labels = val_disease_labels
