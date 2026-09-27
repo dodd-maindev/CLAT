@@ -37,7 +37,7 @@ class OrthogonalAdaptivePoolingConceptHead(nn.Module):
 
     def forward(
         self, patch_tokens: torch.Tensor, lesion_tokens: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Performs forward concept logit computation and regularizer estimation.
 
         Args:
@@ -45,7 +45,7 @@ class OrthogonalAdaptivePoolingConceptHead(nn.Module):
             lesion_tokens: Output tokens of shape (B, num_concepts, embed_dim).
 
         Returns:
-            Tuple of (fused_logits, local_logits, global_logits, ortho_loss).
+            Tuple of (fused_logits, local_logits, global_logits, ortho_loss, spatial_maps).
         """
         # Local spatial concept branch via GeM pooling
         spatial_maps = self.spatial_conv(patch_tokens)
@@ -60,4 +60,4 @@ class OrthogonalAdaptivePoolingConceptHead(nn.Module):
         # Representation disentanglement penalty
         ortho_loss = self.orthogonal_regularizer(lesion_tokens)
 
-        return fused_logits, local_logits, global_logits, ortho_loss
+        return fused_logits, local_logits, global_logits, ortho_loss, spatial_maps

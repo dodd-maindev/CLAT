@@ -265,9 +265,13 @@ class ViTConcept(vit.VisionTransformer):
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])
         patch_tokens = patch_tokens.contiguous()
         if self.olap_head is not None:
-            lesion_logits, local_lesion_logits, global_lesion_logits, ortho_loss = (
-                self.olap_head(patch_tokens, lesion_tokens)
-            )
+            (
+                lesion_logits,
+                local_lesion_logits,
+                global_lesion_logits,
+                ortho_loss,
+                local_lesion_tokens,
+            ) = self.olap_head(patch_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
         else:
             local_lesion_tokens = self.head(patch_tokens)
