@@ -367,8 +367,12 @@ class ViTConcept(vit.VisionTransformer):
             param.requires_grad = False
         for param in self.head.parameters():
             param.requires_grad = True
+        if hasattr(self, "olap_head") and self.olap_head is not None:
+            for param in self.olap_head.parameters():
+                param.requires_grad = True
         for param in self.cross_attention.parameters():
             param.requires_grad = True
         self.lesion_tokens.requires_grad = True
         self.pos_embed_lesion.requires_grad = True
         self.disease_tokens.requires_grad = True
+

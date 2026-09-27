@@ -1,28 +1,26 @@
-"""Generalized Mean Pooling (GeM) layer for spatial concept extraction."""
+"""Generalized Mean Pooling layer for spatial concept extraction."""
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class GeneralizedMeanPooling2d(nn.Module):
-    """Generalized Mean Pooling across spatial dimensions with learnable p-norm."""
+    """Smooth Generalized Pooling across spatial dimensions with learnable temperature."""
 
     def __init__(self, num_channels: int, initial_power: float = 3.0, eps: float = 1e-6) -> None:
-        """Initializes the GeM pooling layer.
+        """Initializes the smooth generalized pooling layer.
 
         Args:
-            num_channels: Number of input channels (one power parameter per channel).
-            initial_power: Initial p-norm exponent value (default 3.0).
-            eps: Numerical stability constant.
+            num_channels: Number of input channels (one parameter per channel).
+            initial_power: Initial scaling factor for smooth maximum.
+            eps: Epsilon constant for stability.
         """
         super().__init__()
         self.eps = eps
-        # Learnable power parameter p per channel
         self.power = nn.Parameter(torch.full((1, num_channels, 1, 1), float(initial_power)))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Applies GeM pooling over spatial dimensions (H, W).
+        """Applies smooth generalized pooling over spatial dimensions (H, W).
 
         Args:
             x: Input tensor of shape (batch_size, num_channels, height, width).
@@ -30,10 +28,10 @@ class GeneralizedMeanPooling2d(nn.Module):
         Returns:
             Pooled tensor of shape (batch_size, num_channels).
         """
-        # Clamp power parameter to be strictly >= 1.0 for valid norms
-        clamped_power = torch.clamp(self.power, min=1.0)
-        clamped_x = torch.clamp(x, min=self.eps)
-        powered_x = clamped_x.pow(clamped_power)
-        mean_powered_x = F.adaptive_avg_pool2d(powered_x, (1, 1))
-        pooled = mean_powered_x.pow(1.0 / clamped_power)
+        tau = torch.clamp(self.power, min=0.1, max=10.0)
+        h, w = x.shape[-2], x.shape[-1]
+        x_scaled = x * tau
+        lse = torch.logsumexp(x_scaled, dim=(-2, -1), keepdim=True)
+        log_hw = torch.log(torch.tensor(float(h * w), device=x.device, dtype=x.dtype))
+        pooled = (lse - log_hw) / tau
         return torch.flatten(pooled, start_dim=1)

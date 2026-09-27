@@ -9,8 +9,8 @@ model:
     lesion_loss_weight: 0.6
     KG_loss_weight: 0.4
     with_EK: true
-    training_int_prob: 0.25
-    training_int_milestone: 5
+    training_int_prob: null
+    training_int_milestone: 999
 
 optimizer:
   class_path: torch.optim.AdamW
