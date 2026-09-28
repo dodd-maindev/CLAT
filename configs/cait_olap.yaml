@@ -5,15 +5,15 @@ model:
   init_args:
     arch_name: cait_xs24_384_concept
     pretrained: true
-    disease_loss_weight: 0.6
-    lesion_loss_weight: 1.0
+    disease_loss_weight: 1.0
+    lesion_loss_weight: 0.6
     KG_loss_weight: 0.4
     with_EK: true
-    training_int_prob: null
-    training_int_milestone: 999
+    training_int_prob: 0.25
+    training_int_milestone: 10
     use_olap: true
     olap_initial_power: 3.0
-    olap_ortho_weight: 0.02
+    olap_ortho_weight: 0.05
 
 optimizer:
   class_path: torch.optim.AdamW
@@ -30,7 +30,7 @@ lr_scheduler:
 
 trainer:
   devices: [0,]
-  max_epochs: 200
+  max_epochs: 70
   log_every_n_steps: 1
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
@@ -49,7 +49,7 @@ trainer:
       init_args:
         monitor: val/kappa
         mode: max
-        patience: 35
+        patience: 20
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
