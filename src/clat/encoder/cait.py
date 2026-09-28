@@ -21,17 +21,13 @@ __all__ = [
 ]
 
 
-def cait_xs24_384_concept(
-    pretrained=False, drop_rate=0.05, drop_path_rate=0.1, **kwargs
-):
+def cait_xs24_384_concept(pretrained=False, **kwargs):
     model = CaiTConcept(
         embed_dim=288,
         depth=24,
         num_heads=6,
         qkv_bias=True,
         init_scale=1e-5,
-        drop_rate=drop_rate,
-        drop_path_rate=drop_path_rate,
         **kwargs,
     )
     if pretrained:
