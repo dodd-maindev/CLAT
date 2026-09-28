@@ -86,7 +86,7 @@ class CLAT(LightningModule):
         self.lesion_loss_weight = lesion_loss_weight
         self.KG_loss_weight = KG_loss_weight
 
-        self.loss_disease = nn.CrossEntropyLoss()
+        self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
         self.loss_lesion = nn.MultiLabelSoftMarginLoss()
         self.loss_knowledge_guide = KnowledgeGuideLoss(knowledge_embeds)
 
