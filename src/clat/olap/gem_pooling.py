@@ -7,7 +7,7 @@ import torch.nn as nn
 class GeneralizedMeanPooling2d(nn.Module):
     """Smooth Generalized Pooling across spatial dimensions with learnable temperature."""
 
-    def __init__(self, num_channels: int, initial_power: float = 3.0, eps: float = 1e-6) -> None:
+    def __init__(self, num_channels: int, initial_power: float = 1.5, eps: float = 1e-6) -> None:
         """Initializes the smooth generalized pooling layer.
 
         Args:
@@ -28,7 +28,7 @@ class GeneralizedMeanPooling2d(nn.Module):
         Returns:
             Pooled tensor of shape (batch_size, num_channels).
         """
-        tau = torch.clamp(self.power, min=0.1, max=10.0)
+        tau = torch.clamp(self.power, min=0.5, max=2.5)
         x_scaled = x * tau
         lse = torch.logsumexp(x_scaled, dim=(-2, -1), keepdim=True)
         pooled = lse / tau

@@ -146,8 +146,8 @@ class ViTConcept(vit.VisionTransformer):
         num_lesions,
         img_size=224,
         use_olap: bool = False,
-        olap_initial_power: float = 3.0,
-        olap_ortho_weight: float = 0.05,
+        olap_initial_power: float = 1.5,
+        olap_ortho_weight: float = 0.005,
         *args,
         **kwargs,
     ):
@@ -347,8 +347,10 @@ class ViTConcept(vit.VisionTransformer):
             .reshape([n, c, h, w])
         )
         patch_attn = attn_weights[:, :, self.num_lesions :, self.num_lesions :]
+        feature_map_norm = feature_map / (feature_map.amax(dim=(-2, -1), keepdim=True) + 1e-8)
+        mtatt_norm = mtatt / (mtatt.amax(dim=(-2, -1), keepdim=True) + 1e-8)
         if attention_type == "fused":
-            cams = mtatt * feature_map  # B * num_lesions * 14 * 14
+            cams = mtatt_norm * feature_map_norm  # B * num_lesions * 14 * 14
             cams = torch.sqrt(cams)
         elif attention_type == "patchcam":
             cams = feature_map
