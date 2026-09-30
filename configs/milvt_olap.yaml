@@ -12,8 +12,8 @@ model:
     training_int_prob: null
     training_int_milestone: 999
     use_olap: true
-    olap_initial_power: 3.0
-    olap_ortho_weight: 0.05
+    olap_initial_power: 1.5
+    olap_ortho_weight: 0.005
 
 optimizer:
   class_path: torch.optim.AdamW
