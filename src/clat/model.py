@@ -117,7 +117,7 @@ class CLAT(LightningModule):
                 images, int_prob=self.training_int_prob, lesion_lbls=lesion_lbls
             )
         else:
-            output = self(images, return_attn=stage == "test")
+            output = self(images, return_attn=stage == "test", lesion_lbls=lesion_lbls)
 
         # loss
         disease_loss = (

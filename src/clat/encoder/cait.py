@@ -563,14 +563,19 @@ class CaiTConcept(cait_models):
         )
 
     def _compute_spatial_loss(
-        self, spatial_maps: torch.Tensor, attn_weights_concepts: list, batch_size: int
+        self,
+        spatial_maps: torch.Tensor,
+        attn_weights_concepts: list,
+        batch_size: int,
+        lesion_lbls: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Computes spatial consistency loss between OLAP maps and concept attention.
 
         Args:
             spatial_maps: OLAP spatial conv output of shape (B, C, H, W).
-            attn_weights_concepts: List of concept→patch attention tensors.
+            attn_weights_concepts: List of concept->patch attention tensors.
             batch_size: Current batch size for reshaping.
+            lesion_lbls: Optional lesion ground truth labels for masking.
 
         Returns:
             Scalar spatial consistency loss value.
@@ -588,7 +593,9 @@ class CaiTConcept(cait_models):
             [:, :, self.num_concepts :]
             .reshape([batch_size, self.num_concepts, h_s, w_s])
         )
-        return self.olap_head.spatial_consistency(spatial_maps, mtatt)
+        return self.olap_head.spatial_consistency(
+            spatial_maps, mtatt.detach(), lesion_labels=lesion_lbls
+        )
 
     def forward(
         self,
@@ -631,7 +638,7 @@ class CaiTConcept(cait_models):
             ) = self.olap_head(patch_tokens, concept_tokens)
             self.current_ortho_loss = ortho_loss
             self.current_spatial_loss = self._compute_spatial_loss(
-                concept_patch, attn_weights_concepts, n
+                concept_patch, attn_weights_concepts, n, lesion_lbls=lesion_lbls
             )
         else:
             concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14

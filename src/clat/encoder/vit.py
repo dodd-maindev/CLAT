@@ -244,7 +244,11 @@ class ViTConcept(vit.VisionTransformer):
         return x[:, 0 : self.num_lesions], x[:, self.num_lesions :], attn_weights
 
     def _compute_spatial_loss(
-        self, spatial_maps: torch.Tensor, attn_weights: list, batch_size: int
+        self,
+        spatial_maps: torch.Tensor,
+        attn_weights: list,
+        batch_size: int,
+        lesion_lbls: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Computes spatial consistency loss between OLAP maps and attention.
 
@@ -252,6 +256,7 @@ class ViTConcept(vit.VisionTransformer):
             spatial_maps: OLAP spatial conv output of shape (B, C, H, W).
             attn_weights: List of per-layer attention weight tensors.
             batch_size: Current batch size for reshaping.
+            lesion_lbls: Optional lesion ground truth labels for masking.
 
         Returns:
             Scalar spatial consistency loss value.
@@ -269,7 +274,9 @@ class ViTConcept(vit.VisionTransformer):
             [:, 0 : self.num_lesions, self.num_lesions :]
             .reshape([batch_size, self.num_lesions, h_s, w_s])
         )
-        return self.olap_head.spatial_consistency(spatial_maps, mtatt)
+        return self.olap_head.spatial_consistency(
+            spatial_maps, mtatt.detach(), lesion_labels=lesion_lbls
+        )
 
     def forward(
         self,
@@ -304,7 +311,7 @@ class ViTConcept(vit.VisionTransformer):
             ) = self.olap_head(patch_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
             self.current_spatial_loss = self._compute_spatial_loss(
-                local_lesion_tokens, attn_weights, n
+                local_lesion_tokens, attn_weights, n, lesion_lbls=lesion_lbls
             )
         else:
             local_lesion_tokens = self.head(patch_tokens)
