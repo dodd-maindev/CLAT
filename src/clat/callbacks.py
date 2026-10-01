@@ -190,6 +190,7 @@ class GenHeatmap(Callback):
                 lesion_cls_attention = (
                     lesion_cls_attention - lesion_cls_attention.min()
                 ) / (lesion_cls_attention.max() - lesion_cls_attention.min() + 1e-8)
+                lesion_cls_attention = lesion_cls_attention * float(lesion_cls_score)
 
                 lesion_cls_attention = lesion_cls_attention.detach().cpu().numpy()
 

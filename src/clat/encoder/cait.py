@@ -683,12 +683,15 @@ class CaiTConcept(cait_models):
         )
 
     def learn_concept_embed(self):
-        """freeze all layers except concept token and head"""
+        """Freeze all layers except concept token, head, and olap_head."""
         for param in self.parameters():
             param.requires_grad = False
 
         for param in self.head.parameters():
             param.requires_grad = True
+        if hasattr(self, "olap_head") and self.olap_head is not None:
+            for param in self.olap_head.parameters():
+                param.requires_grad = True
         self.concept_cls_token.requires_grad = True
 
     def learn_all(self):
