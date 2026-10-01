@@ -454,6 +454,7 @@ class CaiTConcept(cait_models):
         use_olap: bool = kwargs.pop("use_olap", False)
         olap_initial_power: float = kwargs.pop("olap_initial_power", 3.0)
         olap_ortho_weight: float = kwargs.pop("olap_ortho_weight", 0.05)
+        olap_spatial_weight: float = kwargs.pop("olap_spatial_weight", 0.0)
         super().__init__(*args, **kwargs)
         self.num_concepts = num_lesions
         self.decay_parameter = decay_parameter
@@ -464,6 +465,7 @@ class CaiTConcept(cait_models):
                 num_concepts=self.num_concepts,
                 initial_power=olap_initial_power,
                 ortho_weight=olap_ortho_weight,
+                spatial_weight=olap_spatial_weight,
             )
         else:
             self.olap_head = None
@@ -560,6 +562,34 @@ class CaiTConcept(cait_models):
             concept_embeddings,
         )
 
+    def _compute_spatial_loss(
+        self, spatial_maps: torch.Tensor, attn_weights_concepts: list, batch_size: int
+    ) -> torch.Tensor:
+        """Computes spatial consistency loss between OLAP maps and concept attention.
+
+        Args:
+            spatial_maps: OLAP spatial conv output of shape (B, C, H, W).
+            attn_weights_concepts: List of concept→patch attention tensors.
+            batch_size: Current batch size for reshaping.
+
+        Returns:
+            Scalar spatial consistency loss value.
+        """
+        if not self.training or self.olap_head is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+        if self.olap_head.spatial_consistency is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+
+        h_s, w_s = spatial_maps.shape[-2:]
+        n_layers_sc = min(2, len(attn_weights_concepts))
+        attn_stack = torch.stack(attn_weights_concepts[-n_layers_sc:])
+        mtatt = (
+            attn_stack.mean(2).mean(0)
+            [:, :, self.num_concepts :]
+            .reshape([batch_size, self.num_concepts, h_s, w_s])
+        )
+        return self.olap_head.spatial_consistency(spatial_maps, mtatt)
+
     def forward(
         self,
         x,
@@ -600,6 +630,9 @@ class CaiTConcept(cait_models):
                 concept_patch,
             ) = self.olap_head(patch_tokens, concept_tokens)
             self.current_ortho_loss = ortho_loss
+            self.current_spatial_loss = self._compute_spatial_loss(
+                concept_patch, attn_weights_concepts, n
+            )
         else:
             concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
             concept_patch_pooled = F.adaptive_max_pool2d(

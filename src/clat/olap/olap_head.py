@@ -8,6 +8,7 @@ from .concept_projector import CalibratedConceptProjector
 from .convex_gate import ConvexDynamicGate
 from .gem_pooling import GeneralizedMeanPooling2d
 from .orthogonal_loss import OrthogonalSubspaceLoss
+from .spatial_consistency_loss import SpatialConsistencyLoss
 
 
 class OrthogonalAdaptivePoolingConceptHead(nn.Module):
@@ -19,6 +20,7 @@ class OrthogonalAdaptivePoolingConceptHead(nn.Module):
         num_concepts: int,
         initial_power: float = 3.0,
         ortho_weight: float = 0.1,
+        spatial_weight: float = 0.0,
     ) -> None:
         """Initializes the OLAP concept head.
 
@@ -27,6 +29,7 @@ class OrthogonalAdaptivePoolingConceptHead(nn.Module):
             num_concepts: Number of concept categories.
             initial_power: Initial exponent for GeM pooling.
             ortho_weight: Weight for orthogonal subspace penalty.
+            spatial_weight: Weight for spatial consistency penalty (0 = disabled).
         """
         super().__init__()
         self.spatial_conv = nn.Conv2d(embed_dim, num_concepts, kernel_size=1)
@@ -34,6 +37,10 @@ class OrthogonalAdaptivePoolingConceptHead(nn.Module):
         self.concept_projector = CalibratedConceptProjector(embed_dim, num_concepts)
         self.dynamic_gate = ConvexDynamicGate(num_concepts)
         self.orthogonal_regularizer = OrthogonalSubspaceLoss(loss_weight=ortho_weight)
+        self.spatial_consistency = (
+            SpatialConsistencyLoss(loss_weight=spatial_weight)
+            if spatial_weight > 0 else None
+        )
 
     def forward(
         self, patch_tokens: torch.Tensor, lesion_tokens: torch.Tensor
@@ -61,3 +68,4 @@ class OrthogonalAdaptivePoolingConceptHead(nn.Module):
         ortho_loss = self.orthogonal_regularizer(lesion_tokens)
 
         return fused_logits, local_logits, global_logits, ortho_loss, spatial_maps
+

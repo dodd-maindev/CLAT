@@ -14,6 +14,7 @@ model:
     use_olap: true
     olap_initial_power: 3.0
     olap_ortho_weight: 0.02
+    olap_spatial_weight: 0.02
 
 optimizer:
   class_path: torch.optim.AdamW

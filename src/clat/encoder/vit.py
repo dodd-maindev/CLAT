@@ -148,6 +148,7 @@ class ViTConcept(vit.VisionTransformer):
         use_olap: bool = False,
         olap_initial_power: float = 3.0,
         olap_ortho_weight: float = 0.05,
+        olap_spatial_weight: float = 0.0,
         *args,
         **kwargs,
     ):
@@ -161,6 +162,7 @@ class ViTConcept(vit.VisionTransformer):
                 num_concepts=self.num_lesions,
                 initial_power=olap_initial_power,
                 ortho_weight=olap_ortho_weight,
+                spatial_weight=olap_spatial_weight,
             )
         else:
             self.olap_head = None
@@ -241,6 +243,34 @@ class ViTConcept(vit.VisionTransformer):
 
         return x[:, 0 : self.num_lesions], x[:, self.num_lesions :], attn_weights
 
+    def _compute_spatial_loss(
+        self, spatial_maps: torch.Tensor, attn_weights: list, batch_size: int
+    ) -> torch.Tensor:
+        """Computes spatial consistency loss between OLAP maps and attention.
+
+        Args:
+            spatial_maps: OLAP spatial conv output of shape (B, C, H, W).
+            attn_weights: List of per-layer attention weight tensors.
+            batch_size: Current batch size for reshaping.
+
+        Returns:
+            Scalar spatial consistency loss value.
+        """
+        if not self.training or self.olap_head is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+        if self.olap_head.spatial_consistency is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+
+        h_s, w_s = spatial_maps.shape[-2:]
+        n_layers_sc = min(4, len(attn_weights))
+        attn_stack = torch.stack(attn_weights[-n_layers_sc:])
+        mtatt = (
+            attn_stack.mean(2).mean(0)
+            [:, 0 : self.num_lesions, self.num_lesions :]
+            .reshape([batch_size, self.num_lesions, h_s, w_s])
+        )
+        return self.olap_head.spatial_consistency(spatial_maps, mtatt)
+
     def forward(
         self,
         x,
@@ -273,6 +303,9 @@ class ViTConcept(vit.VisionTransformer):
                 local_lesion_tokens,
             ) = self.olap_head(patch_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
+            self.current_spatial_loss = self._compute_spatial_loss(
+                local_lesion_tokens, attn_weights, n
+            )
         else:
             local_lesion_tokens = self.head(patch_tokens)
             local_lesion_token_pooled = F.adaptive_max_pool2d(local_lesion_tokens, (1, 1))
