@@ -68,7 +68,7 @@ class ClinicalHeatmapRenderer:
         axes[1, 0].imshow(img_384)
         axes[1, 0].set_title("MODEL: CLAT\n(Baseline MIL-VT)", fontsize=11, weight="bold", color="darkred")
         axes[2, 0].imshow(img_384)
-        axes[2, 0].set_title("MODEL: OLAP\n(Proposed V7)", fontsize=11, weight="bold", color="blue")
+        axes[2, 0].set_title("MODEL: OLAP\n(Proposed V8)", fontsize=11, weight="bold", color="blue")
 
         for col, code in enumerate(self.LESION_NAMES, start=1):
             gt_file = self.find_file(f"data/**/{code}/{image_id}.tif")
@@ -77,7 +77,7 @@ class ClinicalHeatmapRenderer:
             axes[1, col].imshow(self.blend_jet(img_384, clat_cams[col - 1]))
             axes[1, col].set_title(f"CLAT (Baseline): {code}", fontsize=11, weight="bold", color="maroon")
             axes[2, col].imshow(self.blend_jet(img_384, olap_cams[col - 1]))
-            axes[2, col].set_title(f"OLAP (Proposed): {code}", fontsize=11, weight="bold", color="navy")
+            axes[2, col].set_title(f"OLAP (V8): {code}", fontsize=11, weight="bold", color="navy")
 
         for r in range(3):
             for c in range(5):
@@ -91,8 +91,8 @@ class ClinicalHeatmapRenderer:
 
 if __name__ == "__main__":
     clat_cp = sys.argv[1] if len(sys.argv) > 1 else "log/milvt_baseline_fold_0/version_0/checkpoints/epoch=11-step=1020.ckpt"
-    olap_cp = sys.argv[2] if len(sys.argv) > 2 else "log/milvt_olap_fold_0/version_7/checkpoints/epoch=11-step=1020.ckpt"
-    cases_arg = sys.argv[3] if len(sys.argv) > 3 else "007-2852-100,007-4250-200,007-7235-400"
+    olap_cp = sys.argv[2] if len(sys.argv) > 2 else "log/milvt_olap_fold_0/version_8/checkpoints/epoch=15-step=1360.ckpt"
+    cases_arg = sys.argv[3] if len(sys.argv) > 3 else "007-2852-100,007-5470-300,007-4250-200,007-7235-400"
     renderer = ClinicalHeatmapRenderer(clat_cp, olap_cp)
     for cid in [c.strip() for c in cases_arg.split(",") if c.strip()]:
-        renderer.execute_single(cid, f"comparison_clat_vs_olap_{cid}.png")
+        renderer.execute_single(cid, f"comparison_v8_{cid}.png")
