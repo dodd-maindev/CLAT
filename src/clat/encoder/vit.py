@@ -318,6 +318,7 @@ class ViTConcept(vit.VisionTransformer):
             patch_tokens = torch.reshape(patch_tokens, [n, int(p**0.5), int(p**0.5), c])
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])
         patch_tokens = patch_tokens.contiguous()
+        local_lesion_tokens = self.head(patch_tokens)
         if self.olap_head is not None:
             (
                 lesion_logits,
@@ -325,18 +326,10 @@ class ViTConcept(vit.VisionTransformer):
                 global_lesion_logits,
                 ortho_loss,
                 local_lesion_tokens,
-            ) = self.olap_head(patch_tokens, lesion_tokens)
+            ) = self.olap_head(local_lesion_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
-            self.current_spatial_loss = self._compute_spatial_loss(
-                local_lesion_tokens,
-                attn_weights,
-                n,
-                lesion_lbls=lesion_lbls,
-                image_ids=image_ids,
-                doctor_masks=doctor_masks,
-            )
+            self.current_spatial_loss = torch.tensor(0.0, device=lesion_tokens.device)
         else:
-            local_lesion_tokens = self.head(patch_tokens)
             local_lesion_token_pooled = F.adaptive_max_pool2d(local_lesion_tokens, (1, 1))
             local_lesion_logits = torch.flatten(local_lesion_token_pooled, 1)
             global_lesion_logits = lesion_tokens.mean(-1)
