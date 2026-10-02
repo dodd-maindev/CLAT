@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
 
-from clat.olap import OrthogonalAdaptivePoolingConceptHead
+from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
 
 __all__ = [
@@ -467,8 +467,11 @@ class CaiTConcept(cait_models):
                 ortho_weight=olap_ortho_weight,
                 spatial_weight=olap_spatial_weight,
             )
+            target_grid = to_2tuple(self.img_size)[0] // to_2tuple(self.patch_embed.patch_size)[0]
+            self.train_mask_provider = TrainMaskProvider(target_size=target_grid)
         else:
             self.olap_head = None
+            self.train_mask_provider = None
         self.current_ortho_loss = torch.tensor(0.0)
         self.head = nn.Conv2d(self.embed_dim, self.num_concepts, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
@@ -568,22 +571,23 @@ class CaiTConcept(cait_models):
         attn_weights_concepts: list,
         batch_size: int,
         lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
     ) -> torch.Tensor:
-        """Computes spatial consistency loss between OLAP maps and concept attention.
-
-        Args:
-            spatial_maps: OLAP spatial conv output of shape (B, C, H, W).
-            attn_weights_concepts: List of concept->patch attention tensors.
-            batch_size: Current batch size for reshaping.
-            lesion_lbls: Optional lesion ground truth labels for masking.
-
-        Returns:
-            Scalar spatial consistency loss value.
-        """
+        """Computes spatial consistency loss with semi-supervised doctor mask guidance."""
         if not self.training or self.olap_head is None:
             return torch.tensor(0.0, device=spatial_maps.device)
         if self.olap_head.spatial_consistency is None:
             return torch.tensor(0.0, device=spatial_maps.device)
+
+        doctor_masks, has_mask_flags = None, None
+        if (
+            image_ids is not None
+            and hasattr(self, "train_mask_provider")
+            and self.train_mask_provider is not None
+        ):
+            doctor_masks, has_mask_flags = self.train_mask_provider.get_batch_masks(
+                list(image_ids), spatial_maps.device
+            )
 
         h_s, w_s = spatial_maps.shape[-2:]
         n_layers_sc = min(2, len(attn_weights_concepts))
@@ -594,7 +598,11 @@ class CaiTConcept(cait_models):
             .reshape([batch_size, self.num_concepts, h_s, w_s])
         )
         return self.olap_head.spatial_consistency(
-            spatial_maps, mtatt.detach(), lesion_labels=lesion_lbls
+            spatial_maps,
+            mtatt.detach(),
+            lesion_labels=lesion_lbls,
+            doctor_masks=doctor_masks,
+            has_mask_flags=has_mask_flags,
         )
 
     def forward(
@@ -604,6 +612,7 @@ class CaiTConcept(cait_models):
         return_attn=False,
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
@@ -638,7 +647,11 @@ class CaiTConcept(cait_models):
             ) = self.olap_head(patch_tokens, concept_tokens)
             self.current_ortho_loss = ortho_loss
             self.current_spatial_loss = self._compute_spatial_loss(
-                concept_patch, attn_weights_concepts, n, lesion_lbls=lesion_lbls
+                concept_patch,
+                attn_weights_concepts,
+                n,
+                lesion_lbls=lesion_lbls,
+                image_ids=image_ids,
             )
         else:
             concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14

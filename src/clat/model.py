@@ -114,10 +114,18 @@ class CLAT(LightningModule):
             and self.current_epoch >= self.training_int_milestone
         ):
             output = self(
-                images, int_prob=self.training_int_prob, lesion_lbls=lesion_lbls
+                images,
+                int_prob=self.training_int_prob,
+                lesion_lbls=lesion_lbls,
+                image_ids=batch.id,
             )
         else:
-            output = self(images, return_attn=stage == "test", lesion_lbls=lesion_lbls)
+            output = self(
+                images,
+                return_attn=stage == "test",
+                lesion_lbls=lesion_lbls,
+                image_ids=batch.id,
+            )
 
         # loss
         disease_loss = (

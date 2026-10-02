@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
 
-from clat.olap import OrthogonalAdaptivePoolingConceptHead
+from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
 from clat.utils import CLATOutput, CrossAttention, load_milvt_ckpt, load_timm_weights
 
 __all__ = [
@@ -164,8 +164,11 @@ class ViTConcept(vit.VisionTransformer):
                 ortho_weight=olap_ortho_weight,
                 spatial_weight=olap_spatial_weight,
             )
+            target_grid = self.img_size // self.patch_embed.patch_size[0]
+            self.train_mask_provider = TrainMaskProvider(target_size=target_grid)
         else:
             self.olap_head = None
+            self.train_mask_provider = None
         self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
         self.capture_trace = False
@@ -249,22 +252,23 @@ class ViTConcept(vit.VisionTransformer):
         attn_weights: list,
         batch_size: int,
         lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
     ) -> torch.Tensor:
-        """Computes spatial consistency loss between OLAP maps and attention.
-
-        Args:
-            spatial_maps: OLAP spatial conv output of shape (B, C, H, W).
-            attn_weights: List of per-layer attention weight tensors.
-            batch_size: Current batch size for reshaping.
-            lesion_lbls: Optional lesion ground truth labels for masking.
-
-        Returns:
-            Scalar spatial consistency loss value.
-        """
+        """Computes spatial consistency loss with semi-supervised doctor mask guidance."""
         if not self.training or self.olap_head is None:
             return torch.tensor(0.0, device=spatial_maps.device)
         if self.olap_head.spatial_consistency is None:
             return torch.tensor(0.0, device=spatial_maps.device)
+
+        doctor_masks, has_mask_flags = None, None
+        if (
+            image_ids is not None
+            and hasattr(self, "train_mask_provider")
+            and self.train_mask_provider is not None
+        ):
+            doctor_masks, has_mask_flags = self.train_mask_provider.get_batch_masks(
+                list(image_ids), spatial_maps.device
+            )
 
         h_s, w_s = spatial_maps.shape[-2:]
         n_layers_sc = min(4, len(attn_weights))
@@ -275,7 +279,11 @@ class ViTConcept(vit.VisionTransformer):
             .reshape([batch_size, self.num_lesions, h_s, w_s])
         )
         return self.olap_head.spatial_consistency(
-            spatial_maps, mtatt.detach(), lesion_labels=lesion_lbls
+            spatial_maps,
+            mtatt.detach(),
+            lesion_labels=lesion_lbls,
+            doctor_masks=doctor_masks,
+            has_mask_flags=has_mask_flags,
         )
 
     def forward(
@@ -285,6 +293,7 @@ class ViTConcept(vit.VisionTransformer):
         return_attn=False,
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
@@ -311,7 +320,11 @@ class ViTConcept(vit.VisionTransformer):
             ) = self.olap_head(patch_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
             self.current_spatial_loss = self._compute_spatial_loss(
-                local_lesion_tokens, attn_weights, n, lesion_lbls=lesion_lbls
+                local_lesion_tokens,
+                attn_weights,
+                n,
+                lesion_lbls=lesion_lbls,
+                image_ids=image_ids,
             )
         else:
             local_lesion_tokens = self.head(patch_tokens)
