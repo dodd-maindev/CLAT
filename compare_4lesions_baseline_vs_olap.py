@@ -43,7 +43,7 @@ class ClinicalHeatmapRenderer:
         blended = 0.5 * raw_rgb.astype(np.float32) + 0.5 * jet_rgb.astype(np.float32)
         return np.clip(blended, 0, 255).astype(np.uint8)
 
-    def execute(self, image_id: str, output_path: str) -> None:
+    def execute(self, image_id: str, output_path: str, model_b_label: str = "OLAP (V7)") -> None:
         """Executes dual inference and saves 3x5 clinical comparison figure."""
         img_path = self.find_file(f"data/**/{image_id}.jpg")
         if not img_path:
@@ -65,7 +65,7 @@ class ClinicalHeatmapRenderer:
         axes[1, 0].imshow(img_384)
         axes[1, 0].set_title("Baseline (MIL-VT)", fontsize=11, weight="bold", color="red")
         axes[2, 0].imshow(img_384)
-        axes[2, 0].set_title("V4: Unsync (Old)", fontsize=11, weight="bold", color="blue")
+        axes[2, 0].set_title(model_b_label, fontsize=11, weight="bold", color="blue")
 
         for col, code in enumerate(self.LESION_NAMES, start=1):
             gt_file = self.find_file(f"data/**/{code}/{image_id}.tif")
@@ -74,7 +74,7 @@ class ClinicalHeatmapRenderer:
             axes[1, col].imshow(self.blend_jet_heatmap(img_384, bl_cams[col - 1]))
             axes[1, col].set_title(f"Baseline: {code}", fontsize=11, weight="bold")
             axes[2, col].imshow(self.blend_jet_heatmap(img_384, olap_cams[col - 1]))
-            axes[2, col].set_title(f"V4: {code}", fontsize=11, weight="bold")
+            axes[2, col].set_title(f"{model_b_label}: {code}", fontsize=11, weight="bold")
 
         for r in range(3):
             for c in range(5):
@@ -88,7 +88,8 @@ class ClinicalHeatmapRenderer:
 
 if __name__ == "__main__":
     bl_ckpt = sys.argv[1] if len(sys.argv) > 1 else "log/milvt_baseline_fold_0/version_0/checkpoints/epoch=11-step=1020.ckpt"
-    olap_ckpt = sys.argv[2] if len(sys.argv) > 2 else "log/milvt_olap_fold_0/version_4/checkpoints/epoch=12-step=1105.ckpt"
+    olap_ckpt = sys.argv[2] if len(sys.argv) > 2 else "log/milvt_olap_fold_0/version_7/checkpoints/epoch=11-step=1020.ckpt"
     case_id = sys.argv[3] if len(sys.argv) > 3 else "007-5470-300"
     target_out = sys.argv[4] if len(sys.argv) > 4 else f"comparison_3x5_{case_id}.png"
-    ClinicalHeatmapRenderer(bl_ckpt, olap_ckpt).execute(case_id, target_out)
+    label = sys.argv[5] if len(sys.argv) > 5 else "V7: Pure Attention"
+    ClinicalHeatmapRenderer(bl_ckpt, olap_ckpt).execute(case_id, target_out, label)
