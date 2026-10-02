@@ -27,11 +27,18 @@ class ClinicalHeatmapRenderer:
         return matches[0] if matches else ""
 
     def render_ground_truth(self, raw_rgb: np.ndarray, mask_path: str) -> np.ndarray:
-        """Overlays raw green mask pixels directly on original fundus without bounding boxes."""
-        canvas = raw_rgb.copy()
+        """Renders vivid green GT mask on dark background with subtle retina contour."""
+        canvas = np.zeros_like(raw_rgb)
+        fundus_mask = (raw_rgb.mean(axis=-1) > 15).astype(np.uint8)
+        cnts, _ = cv2.findContours(fundus_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(canvas, cnts, -1, (40, 40, 60), 1)
+
         if mask_path and os.path.exists(mask_path):
             gt_mask = cv2.resize(cv2.imread(mask_path, 0), (384, 384), interpolation=cv2.INTER_NEAREST)
-            canvas[gt_mask > 0] = [0, 255, 0]
+            if gt_mask.max() > 0:
+                kernel = np.ones((3, 3), np.uint8)
+                dilated = cv2.dilate((gt_mask > 0).astype(np.uint8), kernel, iterations=1)
+                canvas[dilated > 0] = [0, 255, 0]
         return canvas
 
     def blend_jet_heatmap(self, raw_rgb: np.ndarray, cam_2d: np.ndarray) -> np.ndarray:
@@ -43,7 +50,7 @@ class ClinicalHeatmapRenderer:
         blended = 0.5 * raw_rgb.astype(np.float32) + 0.5 * jet_rgb.astype(np.float32)
         return np.clip(blended, 0, 255).astype(np.uint8)
 
-    def execute(self, image_id: str, output_path: str, model_b_label: str = "OLAP (V7)") -> None:
+    def execute(self, image_id: str, output_path: str, model_b_label: str = "V7: Pure Attention") -> None:
         """Executes dual inference and saves 3x5 clinical comparison figure."""
         img_path = self.find_file(f"data/**/{image_id}.jpg")
         if not img_path:
@@ -70,7 +77,7 @@ class ClinicalHeatmapRenderer:
         for col, code in enumerate(self.LESION_NAMES, start=1):
             gt_file = self.find_file(f"data/**/{code}/{image_id}.tif")
             axes[0, col].imshow(self.render_ground_truth(img_384, gt_file))
-            axes[0, col].set_title(f"GT: {code} (Active)", fontsize=11, weight="bold", color="lime")
+            axes[0, col].set_title(f"GT: {code} (Mask)", fontsize=11, weight="bold", color="lime")
             axes[1, col].imshow(self.blend_jet_heatmap(img_384, bl_cams[col - 1]))
             axes[1, col].set_title(f"Baseline: {code}", fontsize=11, weight="bold")
             axes[2, col].imshow(self.blend_jet_heatmap(img_384, olap_cams[col - 1]))
