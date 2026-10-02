@@ -50,8 +50,13 @@ class FundusDatamodule(LightningDataModule):
         self.train_transforms = A.Compose(
             [
                 A.Resize(width=img_size, height=img_size),
-                A.HorizontalFlip(p=0.5),
-                A.RandomRotate90(p=0.5),
+                A.ShiftScaleRotate(
+                    shift_limit=0.03,
+                    scale_limit=0.05,
+                    rotate_limit=12,
+                    border_mode=0,
+                    p=0.5,
+                ),
                 A.ColorJitter(
                     brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1, p=0.8
                 ),

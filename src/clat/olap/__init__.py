@@ -1,5 +1,6 @@
 """OLAP: Orthogonal & Learnable Adaptive-Pooling Concept Head."""
 
+from .attention_guidance import DirectAttentionGuidanceLoss
 from .concept_projector import CalibratedConceptProjector
 from .convex_gate import ConvexDynamicGate
 from .gem_pooling import GeneralizedMeanPooling2d
@@ -18,6 +19,7 @@ __all__ = [
     "OrthogonalSubspaceLoss",
     "SpatialConsistencyLoss",
     "OrthogonalAdaptivePoolingConceptHead",
+    "DirectAttentionGuidanceLoss",
     "ConceptTransparencyMonitor",
     "LayerDataflowTracer",
 ]

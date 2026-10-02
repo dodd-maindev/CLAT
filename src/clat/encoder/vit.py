@@ -13,7 +13,11 @@ import torch.nn.functional as F
 from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
 
-from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
+from clat.olap import (
+    DirectAttentionGuidanceLoss,
+    OrthogonalAdaptivePoolingConceptHead,
+    TrainMaskProvider,
+)
 from clat.utils import CLATOutput, CrossAttention, load_milvt_ckpt, load_timm_weights
 
 __all__ = [
@@ -166,9 +170,12 @@ class ViTConcept(vit.VisionTransformer):
             )
             target_grid = self.img_size // self.patch_embed.patch_size[0]
             self.train_mask_provider = TrainMaskProvider(target_size=target_grid)
+            guidance_weight = olap_spatial_weight if olap_spatial_weight > 0 else 0.02
+            self.attention_guidance = DirectAttentionGuidanceLoss(loss_weight=guidance_weight)
         else:
             self.olap_head = None
             self.train_mask_provider = None
+            self.attention_guidance = None
         self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
         self.capture_trace = False
@@ -319,6 +326,7 @@ class ViTConcept(vit.VisionTransformer):
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])
         patch_tokens = patch_tokens.contiguous()
         local_lesion_tokens = self.head(patch_tokens)
+        h_grid, w_grid = local_lesion_tokens.shape[-2:]
         if self.olap_head is not None:
             (
                 lesion_logits,
@@ -328,7 +336,19 @@ class ViTConcept(vit.VisionTransformer):
                 local_lesion_tokens,
             ) = self.olap_head(local_lesion_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
-            self.current_spatial_loss = torch.tensor(0.0, device=lesion_tokens.device)
+            if self.attention_guidance is not None and self.training:
+                n_layers_att = min(4, len(attn_weights))
+                attn_stack = torch.stack(attn_weights[-n_layers_att:])
+                mtatt_guided = (
+                    attn_stack.mean(2).mean(0)
+                    [:, 0 : self.num_lesions, self.num_lesions :]
+                    .reshape([n, self.num_lesions, h_grid, w_grid])
+                )
+                self.current_spatial_loss = self.attention_guidance(
+                    mtatt_guided, doctor_masks=doctor_masks, lesion_labels=lesion_lbls
+                )
+            else:
+                self.current_spatial_loss = torch.tensor(0.0, device=lesion_tokens.device)
         else:
             local_lesion_token_pooled = F.adaptive_max_pool2d(local_lesion_tokens, (1, 1))
             local_lesion_logits = torch.flatten(local_lesion_token_pooled, 1)
