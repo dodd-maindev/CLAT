@@ -66,7 +66,7 @@ class TrainMaskProvider:
         for lesion in self.LESIONS:
             if lesion in lesion_files:
                 pil_mask = Image.open(lesion_files[lesion]).convert("L")
-                arr = (np.array(pil_mask) > 127).astype(np.float32)
+                arr = (np.array(pil_mask) > 0).astype(np.float32)
                 t = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)
                 # Adaptive max pool preserves sparse punctate lesion signals
                 pooled = F.adaptive_max_pool2d(t, (self.target_size, self.target_size))

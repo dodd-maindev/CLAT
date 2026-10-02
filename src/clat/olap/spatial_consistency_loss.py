@@ -54,8 +54,9 @@ class SpatialConsistencyLoss(nn.Module):
 
         # 1. Spatial supervision: Doctor ground-truth mask or Attention alignment
         if doctor_masks is not None and has_mask_flags is not None and has_mask_flags.any():
+            pos_weight = torch.tensor([10.0], device=spatial_maps.device)
             sup_loss = F.binary_cross_entropy_with_logits(
-                spatial_maps[has_mask_flags], doctor_masks[has_mask_flags]
+                spatial_maps[has_mask_flags], doctor_masks[has_mask_flags], pos_weight=pos_weight
             )
             unsup_flags = ~has_mask_flags
             if unsup_flags.any():
