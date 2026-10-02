@@ -253,15 +253,23 @@ class ViTConcept(vit.VisionTransformer):
         batch_size: int,
         lesion_lbls: Optional[torch.Tensor] = None,
         image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
+        doctor_masks: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Computes spatial consistency loss with semi-supervised doctor mask guidance."""
+        """Computes spatial consistency loss with synchronized doctor mask guidance."""
         if not self.training or self.olap_head is None:
             return torch.tensor(0.0, device=spatial_maps.device)
         if self.olap_head.spatial_consistency is None:
             return torch.tensor(0.0, device=spatial_maps.device)
 
-        doctor_masks, has_mask_flags = None, None
-        if (
+        h_s, w_s = spatial_maps.shape[-2:]
+        has_mask_flags = None
+
+        if doctor_masks is not None:
+            doctor_masks = doctor_masks.to(spatial_maps.device)
+            if doctor_masks.shape[-2:] != (h_s, w_s):
+                doctor_masks = F.adaptive_max_pool2d(doctor_masks, (h_s, w_s))
+            has_mask_flags = doctor_masks.sum(dim=(1, 2, 3)) > 0
+        elif (
             image_ids is not None
             and hasattr(self, "train_mask_provider")
             and self.train_mask_provider is not None
@@ -270,7 +278,6 @@ class ViTConcept(vit.VisionTransformer):
                 list(image_ids), spatial_maps.device
             )
 
-        h_s, w_s = spatial_maps.shape[-2:]
         n_layers_sc = min(4, len(attn_weights))
         attn_stack = torch.stack(attn_weights[-n_layers_sc:])
         mtatt = (
@@ -294,6 +301,7 @@ class ViTConcept(vit.VisionTransformer):
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
         image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
+        doctor_masks: Optional[torch.Tensor] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
@@ -325,6 +333,7 @@ class ViTConcept(vit.VisionTransformer):
                 n,
                 lesion_lbls=lesion_lbls,
                 image_ids=image_ids,
+                doctor_masks=doctor_masks,
             )
         else:
             local_lesion_tokens = self.head(patch_tokens)

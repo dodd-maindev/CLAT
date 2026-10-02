@@ -105,6 +105,8 @@ class CLAT(LightningModule):
         )
         bs = images.shape[0]
 
+        doctor_masks = getattr(batch, "doctor_mask", None)
+
         output: CLATOutput
         # forward
         if (
@@ -118,6 +120,7 @@ class CLAT(LightningModule):
                 int_prob=self.training_int_prob,
                 lesion_lbls=lesion_lbls,
                 image_ids=batch.id,
+                doctor_masks=doctor_masks,
             )
         else:
             output = self(
@@ -125,6 +128,7 @@ class CLAT(LightningModule):
                 return_attn=stage == "test",
                 lesion_lbls=lesion_lbls,
                 image_ids=batch.id,
+                doctor_masks=doctor_masks,
             )
 
         # loss

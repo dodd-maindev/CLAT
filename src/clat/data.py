@@ -5,6 +5,7 @@ from typing import Optional
 import albumentations as A
 import numpy as np
 import pandas as pd
+import torch
 from albumentations.pytorch import ToTensorV2
 from lightning import LightningDataModule
 from pandas import DataFrame
@@ -12,10 +13,13 @@ from PIL import Image
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch.utils.data import DataLoader, Dataset
 
+from clat.olap.mask_provider import TrainMaskProvider
 from clat.utils import handout_split, kfold_split
 
 DataItem = namedtuple(
-    "DataItem", ["image", "disease_lbls", "lesion_lbls", "id", "img_path"]
+    "DataItem",
+    ["image", "disease_lbls", "lesion_lbls", "id", "img_path", "doctor_mask"],
+    defaults=[None],
 )
 
 
@@ -277,6 +281,7 @@ class FundusDatasetWithLesion(Dataset):
         self.disease_lbls = disease_lbls
         self.lesion_annotations = lesion_annotations
         self.transforms = transforms
+        self.mask_provider = TrainMaskProvider()
 
     def __len__(self):
         return len(self.ids)
@@ -296,11 +301,22 @@ class FundusDatasetWithLesion(Dataset):
             :, 1:
         ]
 
-        # Load image
+        # Load image and synchronized doctor mask
         pil_img = Image.open(img_path).convert("RGB")
         image = np.array(pil_img)
+        h, w = image.shape[:2]
 
-        image = self.transforms(image=image)["image"]
+        raw_mask = self.mask_provider.load_raw_mask(id, h, w)
+        transformed = self.transforms(image=image, mask=raw_mask)
+        image = transformed["image"]
+        mask = transformed["mask"]
+
+        if not isinstance(mask, torch.Tensor):
+            mask = torch.from_numpy(mask)
+        if mask.ndim == 3 and mask.shape[-1] == 4:
+            mask = mask.permute(2, 0, 1).contiguous().float()
+        else:
+            mask = mask.float()
 
         return DataItem(
             image=image,
@@ -308,4 +324,5 @@ class FundusDatasetWithLesion(Dataset):
             lesion_lbls=lesion_lbls.values[0],
             id=id,
             img_path=img_path,
+            doctor_mask=mask,
         )
