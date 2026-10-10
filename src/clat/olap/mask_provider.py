@@ -18,6 +18,10 @@ class TrainMaskProvider:
         "data/DDR/lesion_segmentation/train",
         "/content/CLAT/data/DDR-dataset/lesion_segmentation/train",
         "/content/CLAT/data/DDR/lesion_segmentation/train",
+        "data/FGADR/lesion_segmentation",
+        "data/FGADR/Masks",
+        "/content/CLAT/data/FGADR/lesion_segmentation",
+        "/content/CLAT/data/FGADR/Masks",
     )
 
     def __init__(self, target_size: int = 24) -> None:

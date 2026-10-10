@@ -1,3 +1,4 @@
+import os
 import re
 from collections import namedtuple
 from typing import Optional
@@ -290,6 +291,12 @@ class FundusDatasetWithLesion(Dataset):
         id = self.ids[index]
         disease_lbls = self.disease_lbls[index]
         img_path = f"{self.root_dir}/{id}.{self.file_ext}"
+        if not os.path.exists(img_path):
+            for extension in ("png", "jpg", "jpeg", "PNG", "JPG"):
+                candidate_path = f"{self.root_dir}/{id}.{extension}"
+                if os.path.exists(candidate_path):
+                    img_path = candidate_path
+                    break
 
         assert id in self.lesion_annotations["ID"].values, (
             f"{id} does not exist in lesion annotations file."
