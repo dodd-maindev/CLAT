@@ -49,6 +49,7 @@ class CLAT(LightningModule):
         use_olap: bool = False,
         olap_initial_power: float = 3.0,
         olap_ortho_weight: float = 0.05,
+        olap_spatial_weight: float = 0.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -71,6 +72,7 @@ class CLAT(LightningModule):
             use_olap=use_olap,
             olap_initial_power=olap_initial_power,
             olap_ortho_weight=olap_ortho_weight,
+            olap_spatial_weight=olap_spatial_weight,
         )
         if "No DR" in disease_names:
             knowledge_embeds_path = "data/FLAIR_DR_with_EK.pt"
@@ -86,7 +88,7 @@ class CLAT(LightningModule):
         self.lesion_loss_weight = lesion_loss_weight
         self.KG_loss_weight = KG_loss_weight
 
-        self.loss_disease = nn.CrossEntropyLoss()
+        self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
         self.loss_lesion = nn.MultiLabelSoftMarginLoss()
         self.loss_knowledge_guide = KnowledgeGuideLoss(knowledge_embeds)
 
@@ -103,6 +105,8 @@ class CLAT(LightningModule):
         )
         bs = images.shape[0]
 
+        doctor_masks = getattr(batch, "doctor_mask", None)
+
         output: CLATOutput
         # forward
         if (
@@ -112,10 +116,20 @@ class CLAT(LightningModule):
             and self.current_epoch >= self.training_int_milestone
         ):
             output = self(
-                images, int_prob=self.training_int_prob, lesion_lbls=lesion_lbls
+                images,
+                int_prob=self.training_int_prob,
+                lesion_lbls=lesion_lbls,
+                image_ids=batch.id,
+                doctor_masks=doctor_masks,
             )
         else:
-            output = self(images, return_attn=stage == "test")
+            output = self(
+                images,
+                return_attn=stage == "test",
+                lesion_lbls=lesion_lbls,
+                image_ids=batch.id,
+                doctor_masks=doctor_masks,
+            )
 
         # loss
         disease_loss = (
@@ -137,11 +151,13 @@ class CLAT(LightningModule):
         )
 
         ortho_loss = getattr(self.model, "current_ortho_loss", 0.0)
+        spatial_loss = getattr(self.model, "current_spatial_loss", 0.0)
         loss = (
             self.disease_loss_weight * disease_loss
             + self.lesion_loss_weight * lesion_loss
             + self.KG_loss_weight * KG_loss
             + ortho_loss
+            + spatial_loss
         )
 
         self.log(
@@ -162,6 +178,13 @@ class CLAT(LightningModule):
             self.log(
                 f"loss/{stage}_ortho_loss",
                 ortho_loss,
+                prog_bar=False,
+                batch_size=bs,
+                sync_dist=True,
+            )
+            self.log(
+                f"loss/{stage}_spatial_loss",
+                spatial_loss,
                 prog_bar=False,
                 batch_size=bs,
                 sync_dist=True,

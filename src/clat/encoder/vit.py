@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
 
-from clat.olap import OrthogonalAdaptivePoolingConceptHead
+from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
 from clat.utils import CLATOutput, CrossAttention, load_milvt_ckpt, load_timm_weights
 
 __all__ = [
@@ -148,6 +148,7 @@ class ViTConcept(vit.VisionTransformer):
         use_olap: bool = False,
         olap_initial_power: float = 3.0,
         olap_ortho_weight: float = 0.05,
+        olap_spatial_weight: float = 0.0,
         *args,
         **kwargs,
     ):
@@ -161,9 +162,13 @@ class ViTConcept(vit.VisionTransformer):
                 num_concepts=self.num_lesions,
                 initial_power=olap_initial_power,
                 ortho_weight=olap_ortho_weight,
+                spatial_weight=olap_spatial_weight,
             )
+            target_grid = self.img_size // self.patch_embed.patch_size[0]
+            self.train_mask_provider = TrainMaskProvider(target_size=target_grid)
         else:
             self.olap_head = None
+            self.train_mask_provider = None
         self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
         self.capture_trace = False
@@ -241,6 +246,53 @@ class ViTConcept(vit.VisionTransformer):
 
         return x[:, 0 : self.num_lesions], x[:, self.num_lesions :], attn_weights
 
+    def _compute_spatial_loss(
+        self,
+        spatial_maps: torch.Tensor,
+        attn_weights: list,
+        batch_size: int,
+        lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
+        doctor_masks: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Computes spatial consistency loss with synchronized doctor mask guidance."""
+        if not self.training or self.olap_head is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+        if self.olap_head.spatial_consistency is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+
+        h_s, w_s = spatial_maps.shape[-2:]
+        has_mask_flags = None
+
+        if doctor_masks is not None:
+            doctor_masks = doctor_masks.to(spatial_maps.device)
+            if doctor_masks.shape[-2:] != (h_s, w_s):
+                doctor_masks = F.adaptive_max_pool2d(doctor_masks, (h_s, w_s))
+            has_mask_flags = doctor_masks.sum(dim=(1, 2, 3)) > 0
+        elif (
+            image_ids is not None
+            and hasattr(self, "train_mask_provider")
+            and self.train_mask_provider is not None
+        ):
+            doctor_masks, has_mask_flags = self.train_mask_provider.get_batch_masks(
+                list(image_ids), spatial_maps.device
+            )
+
+        n_layers_sc = min(4, len(attn_weights))
+        attn_stack = torch.stack(attn_weights[-n_layers_sc:])
+        mtatt = (
+            attn_stack.mean(2).mean(0)
+            [:, 0 : self.num_lesions, self.num_lesions :]
+            .reshape([batch_size, self.num_lesions, h_s, w_s])
+        )
+        return self.olap_head.spatial_consistency(
+            spatial_maps,
+            mtatt.detach(),
+            lesion_labels=lesion_lbls,
+            doctor_masks=doctor_masks,
+            has_mask_flags=has_mask_flags,
+        )
+
     def forward(
         self,
         x,
@@ -248,6 +300,8 @@ class ViTConcept(vit.VisionTransformer):
         return_attn=False,
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
+        doctor_masks: Optional[torch.Tensor] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
@@ -264,6 +318,7 @@ class ViTConcept(vit.VisionTransformer):
             patch_tokens = torch.reshape(patch_tokens, [n, int(p**0.5), int(p**0.5), c])
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])
         patch_tokens = patch_tokens.contiguous()
+        local_lesion_tokens = self.head(patch_tokens)
         if self.olap_head is not None:
             (
                 lesion_logits,
@@ -271,10 +326,10 @@ class ViTConcept(vit.VisionTransformer):
                 global_lesion_logits,
                 ortho_loss,
                 local_lesion_tokens,
-            ) = self.olap_head(patch_tokens, lesion_tokens)
+            ) = self.olap_head(local_lesion_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
+            self.current_spatial_loss = torch.tensor(0.0, device=lesion_tokens.device)
         else:
-            local_lesion_tokens = self.head(patch_tokens)
             local_lesion_token_pooled = F.adaptive_max_pool2d(local_lesion_tokens, (1, 1))
             local_lesion_logits = torch.flatten(local_lesion_token_pooled, 1)
             global_lesion_logits = lesion_tokens.mean(-1)

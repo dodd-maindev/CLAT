@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
 
-from clat.olap import OrthogonalAdaptivePoolingConceptHead
+from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
 
 __all__ = [
@@ -454,6 +454,7 @@ class CaiTConcept(cait_models):
         use_olap: bool = kwargs.pop("use_olap", False)
         olap_initial_power: float = kwargs.pop("olap_initial_power", 3.0)
         olap_ortho_weight: float = kwargs.pop("olap_ortho_weight", 0.05)
+        olap_spatial_weight: float = kwargs.pop("olap_spatial_weight", 0.0)
         super().__init__(*args, **kwargs)
         self.num_concepts = num_lesions
         self.decay_parameter = decay_parameter
@@ -464,9 +465,13 @@ class CaiTConcept(cait_models):
                 num_concepts=self.num_concepts,
                 initial_power=olap_initial_power,
                 ortho_weight=olap_ortho_weight,
+                spatial_weight=olap_spatial_weight,
             )
+            target_grid = to_2tuple(self.img_size)[0] // to_2tuple(self.patch_embed.patch_size)[0]
+            self.train_mask_provider = TrainMaskProvider(target_size=target_grid)
         else:
             self.olap_head = None
+            self.train_mask_provider = None
         self.current_ortho_loss = torch.tensor(0.0)
         self.head = nn.Conv2d(self.embed_dim, self.num_concepts, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
@@ -560,6 +565,46 @@ class CaiTConcept(cait_models):
             concept_embeddings,
         )
 
+    def _compute_spatial_loss(
+        self,
+        spatial_maps: torch.Tensor,
+        attn_weights_concepts: list,
+        batch_size: int,
+        lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
+    ) -> torch.Tensor:
+        """Computes spatial consistency loss with semi-supervised doctor mask guidance."""
+        if not self.training or self.olap_head is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+        if self.olap_head.spatial_consistency is None:
+            return torch.tensor(0.0, device=spatial_maps.device)
+
+        doctor_masks, has_mask_flags = None, None
+        if (
+            image_ids is not None
+            and hasattr(self, "train_mask_provider")
+            and self.train_mask_provider is not None
+        ):
+            doctor_masks, has_mask_flags = self.train_mask_provider.get_batch_masks(
+                list(image_ids), spatial_maps.device
+            )
+
+        h_s, w_s = spatial_maps.shape[-2:]
+        n_layers_sc = min(2, len(attn_weights_concepts))
+        attn_stack = torch.stack(attn_weights_concepts[-n_layers_sc:])
+        mtatt = (
+            attn_stack.mean(2).mean(0)
+            [:, :, self.num_concepts :]
+            .reshape([batch_size, self.num_concepts, h_s, w_s])
+        )
+        return self.olap_head.spatial_consistency(
+            spatial_maps,
+            mtatt.detach(),
+            lesion_labels=lesion_lbls,
+            doctor_masks=doctor_masks,
+            has_mask_flags=has_mask_flags,
+        )
+
     def forward(
         self,
         x,
@@ -567,6 +612,7 @@ class CaiTConcept(cait_models):
         return_attn=False,
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
+        image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
@@ -600,6 +646,13 @@ class CaiTConcept(cait_models):
                 concept_patch,
             ) = self.olap_head(patch_tokens, concept_tokens)
             self.current_ortho_loss = ortho_loss
+            self.current_spatial_loss = self._compute_spatial_loss(
+                concept_patch,
+                attn_weights_concepts,
+                n,
+                lesion_lbls=lesion_lbls,
+                image_ids=image_ids,
+            )
         else:
             concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
             concept_patch_pooled = F.adaptive_max_pool2d(
@@ -683,12 +736,15 @@ class CaiTConcept(cait_models):
         )
 
     def learn_concept_embed(self):
-        """freeze all layers except concept token and head"""
+        """Freeze all layers except concept token, head, and olap_head."""
         for param in self.parameters():
             param.requires_grad = False
 
         for param in self.head.parameters():
             param.requires_grad = True
+        if hasattr(self, "olap_head") and self.olap_head is not None:
+            for param in self.olap_head.parameters():
+                param.requires_grad = True
         self.concept_cls_token.requires_grad = True
 
     def learn_all(self):

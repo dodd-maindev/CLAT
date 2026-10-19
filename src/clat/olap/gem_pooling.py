@@ -29,9 +29,8 @@ class GeneralizedMeanPooling2d(nn.Module):
             Pooled tensor of shape (batch_size, num_channels).
         """
         tau = torch.clamp(self.power, min=0.1, max=10.0)
-        h, w = x.shape[-2], x.shape[-1]
         x_scaled = x * tau
         lse = torch.logsumexp(x_scaled, dim=(-2, -1), keepdim=True)
-        log_hw = torch.log(torch.tensor(float(h * w), device=x.device, dtype=x.dtype))
-        pooled = (lse - log_hw) / tau
+        pooled = lse / tau
         return torch.flatten(pooled, start_dim=1)
+
