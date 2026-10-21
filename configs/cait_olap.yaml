@@ -5,8 +5,8 @@ model:
   init_args:
     arch_name: cait_xs24_384_concept
     pretrained: true
-    disease_loss_weight: 0.6
-    lesion_loss_weight: 1.0
+    disease_loss_weight: 1.0
+    lesion_loss_weight: 0.6
     KG_loss_weight: 0.4
     with_EK: true
     training_int_prob: null
@@ -20,18 +20,17 @@ optimizer:
   class_path: torch.optim.AdamW
   init_args:
     lr: 4e-5
-    weight_decay: 1e-4
+    weight_decay: 5e-3
 
 lr_scheduler:
-  class_path: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
+  class_path: torch.optim.lr_scheduler.CosineAnnealingLR
   init_args:
-    T_0: 15
-    T_mult: 2
+    T_max: 30
     eta_min: 1e-6
 
 trainer:
   devices: [0,]
-  max_epochs: 100
+  max_epochs: 35
   log_every_n_steps: 1
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
@@ -50,7 +49,7 @@ trainer:
       init_args:
         monitor: val/kappa
         mode: max
-        patience: 20
+        patience: 10
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
