@@ -22,14 +22,15 @@ optimizer:
     weight_decay: 1e-4
 
 lr_scheduler:
-  class_path: torch.optim.lr_scheduler.CosineAnnealingLR
+  class_path: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
   init_args:
-    T_max: 20
+    T_0: 15
+    T_mult: 2
     eta_min: 1e-6
 
 trainer:
   devices: [0,]
-  max_epochs: 20
+  max_epochs: 100
   log_every_n_steps: 1
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
@@ -44,6 +45,11 @@ trainer:
       init_args:
         monitor: val/kappa
         mode: max
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: val/kappa
+        mode: max
+        patience: 20
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
