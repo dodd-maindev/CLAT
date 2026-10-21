@@ -616,9 +616,11 @@ class CaiTConcept(cait_models):
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
         image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
+        doctor_masks: Optional[torch.Tensor] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
+        **kwargs,
     ):
         w, h = x.shape[2:]
         (
