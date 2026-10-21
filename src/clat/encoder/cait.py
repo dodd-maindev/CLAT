@@ -22,6 +22,7 @@ __all__ = [
 
 
 def cait_xs24_384_concept(pretrained=False, **kwargs):
+    kwargs.setdefault("img_size", 384)
     model = CaiTConcept(
         embed_dim=288,
         depth=24,
@@ -36,6 +37,7 @@ def cait_xs24_384_concept(pretrained=False, **kwargs):
 
 
 def cait_xxs24_384_concept(pretrained=False, **kwargs):
+    kwargs.setdefault("img_size", 384)
     model = CaiTConcept(
         embed_dim=192,
         depth=24,
