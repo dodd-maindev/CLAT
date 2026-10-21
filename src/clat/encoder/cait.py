@@ -473,6 +473,7 @@ class CaiTConcept(cait_models):
             self.olap_head = None
             self.train_mask_provider = None
         self.current_ortho_loss = torch.tensor(0.0)
+        self.current_spatial_loss = torch.tensor(0.0)
         self.head = nn.Conv2d(self.embed_dim, self.num_concepts, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
 
@@ -635,8 +636,9 @@ class CaiTConcept(cait_models):
             patch_tokens = torch.reshape(
                 patch_tokens, [n, int(p**0.5), int(p**0.5), c]
             )  # B * 14 * 14 * 384
-        patch_tokens = patch_tokens.permute([0, 3, 1, 2])  # B * 384 * 14 * 14
+        patch_tokens = patch_tokens.permute([0, 3, 1, 2])  # B * embed_dim * H * W
         patch_tokens = patch_tokens.contiguous()
+        concept_patch = self.head(patch_tokens)  # B * num_concepts * H * W
         if self.olap_head is not None:
             (
                 concept_logits,
@@ -644,17 +646,10 @@ class CaiTConcept(cait_models):
                 global_concept_logits,
                 ortho_loss,
                 concept_patch,
-            ) = self.olap_head(patch_tokens, concept_tokens)
+            ) = self.olap_head(concept_patch, concept_tokens)
             self.current_ortho_loss = ortho_loss
-            self.current_spatial_loss = self._compute_spatial_loss(
-                concept_patch,
-                attn_weights_concepts,
-                n,
-                lesion_lbls=lesion_lbls,
-                image_ids=image_ids,
-            )
+            self.current_spatial_loss = torch.tensor(0.0, device=concept_tokens.device)
         else:
-            concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
             concept_patch_pooled = F.adaptive_max_pool2d(
                 concept_patch, (1, 1)
             )  # B * num_lesions * 1 * 1
@@ -662,6 +657,7 @@ class CaiTConcept(cait_models):
             global_concept_logits = concept_tokens.mean(-1)
             concept_logits = (global_concept_logits + concept_patch_logits) / 2
             self.current_ortho_loss = torch.tensor(0.0, device=concept_tokens.device)
+            self.current_spatial_loss = torch.tensor(0.0, device=concept_tokens.device)
 
         if int_prob is not None:
             bs_size = concept_logits.size(0)
