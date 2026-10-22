@@ -50,6 +50,7 @@ class CLAT(LightningModule):
         olap_initial_power: float = 3.0,
         olap_ortho_weight: float = 0.05,
         olap_spatial_weight: float = 0.0,
+        drop_path_rate: float = 0.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -73,6 +74,7 @@ class CLAT(LightningModule):
             olap_initial_power=olap_initial_power,
             olap_ortho_weight=olap_ortho_weight,
             olap_spatial_weight=olap_spatial_weight,
+            drop_path_rate=drop_path_rate,
         )
         if "No DR" in disease_names:
             knowledge_embeds_path = "data/FLAIR_DR_with_EK.pt"
