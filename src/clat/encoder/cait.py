@@ -649,6 +649,7 @@ class CaiTConcept(cait_models):
             )  # B * 14 * 14 * 384
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])  # B * 384 * 14 * 14
         patch_tokens = patch_tokens.contiguous()
+        concept_patch = self.head(patch_tokens)
         if self.olap_head is not None:
             (
                 concept_logits,
@@ -656,17 +657,10 @@ class CaiTConcept(cait_models):
                 global_concept_logits,
                 ortho_loss,
                 concept_patch,
-            ) = self.olap_head(patch_tokens, concept_tokens)
+            ) = self.olap_head(concept_patch, concept_tokens)
             self.current_ortho_loss = ortho_loss
-            self.current_spatial_loss = self._compute_spatial_loss(
-                concept_patch,
-                attn_weights_concepts,
-                n,
-                lesion_lbls=lesion_lbls,
-                image_ids=image_ids,
-            )
+            self.current_spatial_loss = torch.tensor(0.0, device=concept_tokens.device)
         else:
-            concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
             concept_patch_pooled = F.adaptive_max_pool2d(
                 concept_patch, (1, 1)
             )  # B * num_lesions * 1 * 1
