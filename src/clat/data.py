@@ -56,7 +56,7 @@ class FundusDatamodule(LightningDataModule):
                 A.ColorJitter(
                     brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1, p=0.8
                 ),
-                A.GaussianBlur(p=0.5),
+                A.Sharpen(alpha=(0.1, 0.3), lightness=(0.9, 1.1), p=0.3),
                 A.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD),
                 ToTensorV2(),
             ]
