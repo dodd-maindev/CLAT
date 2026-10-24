@@ -381,7 +381,7 @@ class ViTConcept(vit.VisionTransformer):
         out_value, cross_attn_maps = self.cross_attention(
             self.disease_tokens.repeat(n, 1, 1), lesion_tokens_i
         )
-        disease_logits = self.disease_classifier(out_value, patch_tokens)
+        disease_logits = self.disease_classifier(out_value, patch_tokens, lesion_logits)
 
         if getattr(self, "capture_trace", False):
             self.last_forward_trace = {
