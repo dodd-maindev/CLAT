@@ -42,6 +42,7 @@ class FgadrCrossValidationRunner:
                 shutil.copy2(f, dest)
             for f in glob.glob(f"log/{fold_name}/**/test_metrics.json", recursive=True):
                 shutil.copy2(f, dest)
+            os.system("sync")
             print(f"[Drive Sync] Checkpoints and metrics copied to {dest}")
         return status
 
