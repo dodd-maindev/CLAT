@@ -93,10 +93,16 @@ class MetricsCaculator(Callback):
         self.val_metrics.reset()
         self.current_val_rs = val_rs
 
+        if self.best_metrics is None or val_rs.get("kappa", 0.0) > self.best_metrics.get("kappa", 0.0):
+            self.best_metrics = val_rs
+            self.best_epoch = trainer.current_epoch
+
         table = fit_rs2table(
             trainer.current_epoch, train_rs, val_rs, self.best_metrics, self.best_epoch
         )
-        logging.info(f"\n{table}") if self.verbose else None
+        if self.verbose:
+            print(f"\n{table}")
+            logging.info(f"\n{table}")
 
         for name, value in train_rs.items():
             pl_module.log(

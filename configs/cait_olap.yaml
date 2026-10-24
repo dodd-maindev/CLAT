@@ -47,11 +47,11 @@ trainer:
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
-        monitor: val/priority_score
+        monitor: val/kappa
         mode: max
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
-        monitor: val/priority_score
+        monitor: val/kappa
         mode: max
         patience: 20
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor

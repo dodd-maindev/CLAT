@@ -14,20 +14,22 @@ class FgadrCrossValidationRunner:
     """Coordinates execution and metric aggregation for FGADR cross validation."""
 
     def __init__(
-        self,
-        config_path: str = "configs/milvt_olap.yaml",
+        self, config_path: str = "configs/milvt_olap.yaml",
         data_config_path: str = "configs/data/FGADR.yaml",
         experiment_prefix: str = "milvt_fgadr_olap",
         drive_sync: Optional[str] = "/content/drive/MyDrive/FGADR_MILVT_Checkpoints",
     ) -> None:
-        self.config_path = config_path
-        self.data_config_path = data_config_path
-        self.experiment_prefix = experiment_prefix
-        self.drive_sync = drive_sync
+        self.config_path, self.data_config_path = config_path, data_config_path
+        self.experiment_prefix, self.drive_sync = experiment_prefix, drive_sync
 
     def execute_single_fold(self, fold_index: int) -> int:
         """Executes fit and test subcommands for a single cross-validation fold."""
         fold_name = f"{self.experiment_prefix}_fold_{fold_index}"
+        fold_dir, bkp = f"log/{fold_name}", f"log/{fold_name}_prev"
+        if os.path.exists(fold_dir):
+            if os.path.exists(bkp):
+                shutil.rmtree(bkp)
+            shutil.move(fold_dir, bkp)
         print(f"\n{'=' * 30} STARTING FGADR FOLD {fold_index} {'=' * 30}\n")
         cmd = [
             sys.executable, "src/main.py", "fit_and_test",
@@ -35,7 +37,9 @@ class FgadrCrossValidationRunner:
             f"--data.fold_num={fold_index}", f"--trainer.logger.init_args.name={fold_name}",
         ]
         status = subprocess.run(cmd).returncode
-        if status == 0 and self.drive_sync and os.path.exists("/content/drive"):
+        if status != 0 and os.path.exists(bkp):
+            shutil.move(bkp, fold_dir)
+        elif status == 0 and self.drive_sync and os.path.exists("/content/drive"):
             dest = os.path.join(self.drive_sync, fold_name)
             os.makedirs(dest, exist_ok=True)
             for f in glob.glob(f"log/{fold_name}/**/*.ckpt", recursive=True):
@@ -82,17 +86,12 @@ class FgadrCrossValidationRunner:
         print("=" * 80 + "\n")
 
 
-def main() -> None:
-    """Parses command line arguments and runs cross-validation folds."""
-    start_fold = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-    end_fold = int(sys.argv[2]) if len(sys.argv) > 2 else 9
+if __name__ == "__main__":
+    start = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    end = int(sys.argv[2]) if len(sys.argv) > 2 else 9
     runner = FgadrCrossValidationRunner()
-    for fold in range(start_fold, end_fold + 1):
-        if runner.execute_single_fold(fold) != 0:
-            print(f"Training failed on fold {fold}.")
+    for f in range(start, end + 1):
+        if runner.execute_single_fold(f) != 0:
+            print(f"Training failed on fold {f}.")
             break
         runner.aggregate_metrics()
-
-
-if __name__ == "__main__":
-    main()
