@@ -8,6 +8,7 @@ from lightning import Callback, LightningModule, Trainer
 
 from clat.data import DataItem
 from clat.model import CLAT
+from clat.olap import PriorityScoreCalculator
 from clat.utils import CLSandCPTMetrics, fit_rs2table, test_rs2table
 
 
@@ -15,6 +16,7 @@ class MetricsCaculator(Callback):
     def __init__(self, verbose: bool = True) -> None:
         super().__init__()
         self.verbose = verbose
+        self.priority_calculator = PriorityScoreCalculator()
 
     def on_fit_start(self, trainer: Trainer, pl_module: CLAT) -> None:
         self.best_metrics = None
@@ -105,6 +107,15 @@ class MetricsCaculator(Callback):
                 on_epoch=True,
                 sync_dist=True,
             )
+        priority_score = self.priority_calculator.compute(val_rs).to(pl_module.device)
+        pl_module.log(
+            "val/priority_score",
+            priority_score,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
         for name, value in val_rs.items():
             pl_module.log(
                 f"val/{name}",
@@ -124,11 +135,12 @@ class MetricsCaculator(Callback):
         if trainer.log_dir is not None:
             import json, os
             os.makedirs(trainer.log_dir, exist_ok=True)
-            output_file = os.path.join(trainer.log_dir, "test_metrics.json")
+            test_priority = self.priority_calculator.compute(metrics_dict)
             converted = {
                 k: float(v.item()) if hasattr(v, "item") else float(v)
                 for k, v in metrics_dict.items()
             }
+            converted["priority_score"] = float(test_priority.item())
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(converted, f, indent=2)
 

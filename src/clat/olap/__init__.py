@@ -11,6 +11,7 @@ from .orthogonal_loss import OrthogonalSubspaceLoss
 from .spatial_consistency_loss import SpatialConsistencyLoss
 
 from .dual_path_disease_classifier import DualPathDiseaseClassifier
+from .priority_score import ContinuousSeverityCalibrator, PriorityScoreCalculator
 
 __all__ = [
     "TrainMaskProvider",
@@ -23,5 +24,7 @@ __all__ = [
     "ConceptTransparencyMonitor",
     "LayerDataflowTracer",
     "DualPathDiseaseClassifier",
+    "PriorityScoreCalculator",
+    "ContinuousSeverityCalibrator",
 ]
 
