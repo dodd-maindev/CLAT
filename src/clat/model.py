@@ -6,6 +6,7 @@ from lightning import LightningModule
 
 from clat.data import DataItem
 from clat.encoder import load_encoder
+from clat.losses import OrdinalDiseaseLoss
 from clat.utils import CLATOutput
 
 
@@ -50,6 +51,9 @@ class CLAT(LightningModule):
         olap_initial_power: float = 3.0,
         olap_ortho_weight: float = 0.05,
         olap_spatial_weight: float = 0.0,
+        use_ordinal_loss: bool = True,
+        qwk_loss_weight: float = 0.5,
+        disease_class_weights: Optional[list[float]] = None,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -88,7 +92,15 @@ class CLAT(LightningModule):
         self.lesion_loss_weight = lesion_loss_weight
         self.KG_loss_weight = KG_loss_weight
 
-        self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
+        if use_ordinal_loss and self.num_disease > 2:
+            self.loss_disease = OrdinalDiseaseLoss(
+                num_classes=self.num_disease,
+                class_weights=disease_class_weights,
+                label_smoothing=0.05,
+                qwk_weight=qwk_loss_weight,
+            )
+        else:
+            self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
         self.loss_lesion = nn.MultiLabelSoftMarginLoss()
         self.loss_knowledge_guide = KnowledgeGuideLoss(knowledge_embeds)
 

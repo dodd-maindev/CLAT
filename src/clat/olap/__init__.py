@@ -10,6 +10,8 @@ from .olap_head import OrthogonalAdaptivePoolingConceptHead
 from .orthogonal_loss import OrthogonalSubspaceLoss
 from .spatial_consistency_loss import SpatialConsistencyLoss
 
+from .dual_path_disease_classifier import DualPathDiseaseClassifier
+
 __all__ = [
     "TrainMaskProvider",
     "GeneralizedMeanPooling2d",
@@ -20,5 +22,6 @@ __all__ = [
     "OrthogonalAdaptivePoolingConceptHead",
     "ConceptTransparencyMonitor",
     "LayerDataflowTracer",
+    "DualPathDiseaseClassifier",
 ]
 
