@@ -14,7 +14,7 @@ class DualPathDiseaseClassifier(nn.Module):
         num_classes: int = 5,
         num_concepts: int = 4,
         initial_global_weight: float = 0.1,
-        initial_concept_weight: float = 0.25,
+        initial_concept_weight: float = 0.1,
     ) -> None:
         """Initializes projection heads and residual fusion parameters."""
         super().__init__()

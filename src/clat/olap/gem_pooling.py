@@ -20,7 +20,7 @@ class GeneralizedMeanPooling2d(nn.Module):
         self.power = nn.Parameter(torch.full((1, num_channels, 1, 1), float(initial_power)))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Applies smooth generalized pooling over spatial dimensions (H, W).
+        """Applies normalized smooth generalized pooling over spatial dimensions (H, W).
 
         Args:
             x: Input tensor of shape (batch_size, num_channels, height, width).
@@ -31,6 +31,8 @@ class GeneralizedMeanPooling2d(nn.Module):
         tau = torch.clamp(self.power, min=0.1, max=10.0)
         x_scaled = x * tau
         lse = torch.logsumexp(x_scaled, dim=(-2, -1), keepdim=True)
-        pooled = lse / tau
+        num_patches = float(x.shape[-2] * x.shape[-1])
+        log_hw = torch.log(torch.tensor(num_patches, device=x.device, dtype=x.dtype))
+        pooled = (lse - log_hw) / tau
         return torch.flatten(pooled, start_dim=1)
 
