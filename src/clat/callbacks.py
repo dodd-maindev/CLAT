@@ -141,6 +141,7 @@ class MetricsCaculator(Callback):
                 for k, v in metrics_dict.items()
             }
             converted["priority_score"] = float(test_priority.item())
+            output_file = os.path.join(trainer.log_dir, "test_metrics.json")
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(converted, f, indent=2)
 
