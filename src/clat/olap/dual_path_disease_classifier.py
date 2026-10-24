@@ -18,8 +18,10 @@ class DualPathDiseaseClassifier(nn.Module):
         self.concept_projector = nn.Linear(embed_dim, 1)
         self.global_projector = nn.Sequential(
             nn.LayerNorm(embed_dim),
+            nn.Dropout(0.2),
             nn.Linear(embed_dim, embed_dim // 2),
             nn.GELU(),
+            nn.Dropout(0.2),
             nn.Linear(embed_dim // 2, num_classes),
         )
         self.global_gate = nn.Parameter(torch.tensor(initial_global_weight))
