@@ -31,6 +31,11 @@ class DualPathDiseaseClassifier(nn.Module):
     ) -> torch.Tensor:
         """Computes fused disease logits from concept attention and global patches."""
         concept_logits = self.concept_projector(disease_tokens).squeeze(-1)
-        global_context = patch_tokens.mean(dim=1)
+        if patch_tokens.dim() == 4:
+            global_context = patch_tokens.mean(dim=(-2, -1))
+        elif patch_tokens.dim() == 3:
+            global_context = patch_tokens.mean(dim=1)
+        else:
+            global_context = patch_tokens
         global_logits = self.global_projector(global_context)
         return concept_logits + self.global_gate * global_logits

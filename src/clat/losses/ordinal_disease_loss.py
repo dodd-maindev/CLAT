@@ -18,19 +18,22 @@ class OrdinalDiseaseLoss(nn.Module):
     ) -> None:
         """Initializes balanced cross entropy and soft quadratic weighted kappa."""
         super().__init__()
-        weights_tensor = (
-            torch.tensor(class_weights, dtype=torch.float32)
-            if class_weights is not None
-            else None
-        )
-        self.cross_entropy = nn.CrossEntropyLoss(
-            weight=weights_tensor, label_smoothing=label_smoothing
-        )
-        self.soft_qwk = SoftQuadraticWeightedKappaLoss(num_classes=num_classes)
+        self.label_smoothing = label_smoothing
         self.qwk_weight = qwk_weight
+        if class_weights is not None:
+            weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
+            self.register_buffer("class_weights", weights_tensor)
+        else:
+            self.class_weights = None
+        self.soft_qwk = SoftQuadraticWeightedKappaLoss(num_classes=num_classes)
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """Computes joint cross-entropy and ordinal quadratic kappa loss."""
-        ce_loss = self.cross_entropy(logits, targets)
+        ce_loss = torch.nn.functional.cross_entropy(
+            logits,
+            targets,
+            weight=self.class_weights,
+            label_smoothing=self.label_smoothing,
+        )
         qwk_loss = self.soft_qwk(logits, targets)
         return ce_loss + self.qwk_weight * qwk_loss
