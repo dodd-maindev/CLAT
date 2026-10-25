@@ -12,6 +12,7 @@ from .spatial_consistency_loss import SpatialConsistencyLoss
 
 from .dual_path_disease_classifier import DualPathDiseaseClassifier
 from .priority_score import ContinuousSeverityCalibrator, PriorityScoreCalculator
+from .tta_evaluator import TestTimeAugmentationEvaluator
 
 __all__ = [
     "TrainMaskProvider",
@@ -26,5 +27,6 @@ __all__ = [
     "DualPathDiseaseClassifier",
     "PriorityScoreCalculator",
     "ContinuousSeverityCalibrator",
+    "TestTimeAugmentationEvaluator",
 ]
 

@@ -7,6 +7,7 @@ from lightning import LightningModule
 from clat.data import DataItem
 from clat.encoder import load_encoder
 from clat.losses import OrdinalDiseaseLoss
+from clat.olap import TestTimeAugmentationEvaluator
 from clat.utils import CLATOutput
 
 
@@ -54,6 +55,7 @@ class CLAT(LightningModule):
         use_ordinal_loss: bool = True,
         qwk_loss_weight: float = 0.5,
         disease_class_weights: Optional[list[float]] = None,
+        use_tta: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -66,6 +68,8 @@ class CLAT(LightningModule):
         self.training_int_milestone = training_int_milestone
         self.eval_int = eval_int
         self.use_olap = use_olap
+        self.use_tta = use_tta
+        self.tta_evaluator = TestTimeAugmentationEvaluator()
 
         self.model = load_encoder(
             arch_name,
@@ -121,7 +125,9 @@ class CLAT(LightningModule):
 
         output: CLATOutput
         # forward
-        if (
+        if (stage in ("val", "test")) and getattr(self, "use_tta", False):
+            output = self.tta_evaluator.evaluate(self, images, lesion_lbls)
+        elif (
             self.training
             and self.training_int_prob
             and self.training_int_milestone is not None
