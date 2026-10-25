@@ -27,6 +27,9 @@ class FgadrCrossValidationRunner:
         fold_name = f"{self.experiment_prefix}_fold_{fold_index}"
         fold_dir, bkp = f"log/{fold_name}", f"log/{fold_name}_prev"
         if os.path.exists(fold_dir):
+            for item in os.listdir(fold_dir):
+                if item.startswith("version_") and not item.replace("version_", "").isdigit():
+                    shutil.rmtree(os.path.join(fold_dir, item), ignore_errors=True)
             if os.path.exists(bkp):
                 shutil.rmtree(bkp)
             shutil.move(fold_dir, bkp)
@@ -80,9 +83,8 @@ class FgadrCrossValidationRunner:
         print(df.to_string(index=False))
         mean_s, std_s = df.mean(numeric_only=True), df.std(numeric_only=True)
         print("-" * 80 + "\nMEAN ± STD:")
-        for m in mean_s.index:
-            if m != "Fold":
-                print(f"  {m:<20}: {mean_s[m]:.4f} ± {std_s[m]:.4f}")
+        for m in [col for col in mean_s.index if col != "Fold"]:
+            print(f"  {m:<20}: {mean_s[m]:.4f} ± {std_s[m]:.4f}")
         print("=" * 80 + "\n")
 
 
