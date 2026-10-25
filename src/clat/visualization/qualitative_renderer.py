@@ -7,7 +7,7 @@ import numpy as np
 
 
 class QualitativeRenderer:
-    """Renders side-by-side qualitative figures aligning original fundus with concept heatmaps."""
+    """Renders side-by-side qualitative figures aligning ground truth with concept heatmaps."""
 
     def __init__(self, colormap: int = cv2.COLORMAP_JET, alpha: float = 0.5) -> None:
         """Initializes colormap and blending alpha factor."""
@@ -26,6 +26,19 @@ class QualitativeRenderer:
         blended = np.where(active, (1.0 - self.alpha) * image_rgb + self.alpha * heatmap_rgb, image_rgb)
         return np.clip(blended, 0, 255).astype(np.uint8)
 
+    def render_ground_truth(self, image_rgb: np.ndarray, mask: Optional[np.ndarray]) -> np.ndarray:
+        """Overlays doctor ground-truth lesion masks with distinctive color palette."""
+        if mask is None or mask.sum() == 0:
+            return image_rgb.copy()
+        canvas = image_rgb.copy()
+        colors = [(255, 230, 0), (255, 40, 40), (0, 240, 255), (240, 50, 240)]
+        for i, color in enumerate(colors):
+            if mask.shape[-1] > i and mask[..., i].max() > 0:
+                bin_m = cv2.dilate((mask[..., i] > 0).astype(np.uint8), np.ones((3, 3), np.uint8), iterations=1)
+                for c in range(3):
+                    canvas[..., c] = np.where(bin_m > 0, int(0.3 * canvas[..., c] + 0.7 * color[c]), canvas[..., c])
+        return canvas
+
     def render_patient_case(
         self,
         image_rgb: np.ndarray,
@@ -37,11 +50,15 @@ class QualitativeRenderer:
         disease_probs: List[float],
         disease_names: List[str],
         save_path: str,
+        gt_mask: Optional[np.ndarray] = None,
+        gt_lesions: Optional[List[str]] = None,
     ) -> None:
         """Composes publication-grade 6-panel qualitative figure for a single patient."""
         fig, axes = plt.subplots(1, 6, figsize=(24, 4.5))
-        axes[0].imshow(image_rgb)
-        axes[0].set_title(f"Original Fundus\nGT: {true_disease}", fontsize=11, fontweight="bold", color="darkgreen")
+        gt_img = self.render_ground_truth(image_rgb, gt_mask)
+        axes[0].imshow(gt_img)
+        les_str = f"\nLesions: {', '.join(gt_lesions)}" if gt_lesions else ""
+        axes[0].set_title(f"Ground Truth: {true_disease}{les_str}", fontsize=11, fontweight="bold", color="darkgreen")
         axes[0].axis("off")
 
         colors = ["#2ecc71" if d == pred_disease else "#95a5a6" for d in disease_names]
@@ -64,4 +81,3 @@ class QualitativeRenderer:
         plt.tight_layout()
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
-        print(f"[Renderer] Qualitative figure successfully saved to: {save_path}")
