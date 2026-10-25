@@ -1,7 +1,8 @@
-"""Executes single-row qualitative inference pipeline on top Fold 7 model across 10 new cases."""
+"""Executes single-row qualitative inference pipeline on top Fold 7 model across 20 random cases."""
 
 import glob
 import os
+import random
 import sys
 from typing import Optional
 import cv2
@@ -73,8 +74,8 @@ if __name__ == "__main__":
         print("[Error] No valid Fold 7 checkpoint found.")
         sys.exit(1)
 
-    start_idx = int(sys.argv[2]) if len(sys.argv) > 2 else 10
-    num_samples = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+    seed = int(sys.argv[2]) if len(sys.argv) > 2 else 42
+    count = int(sys.argv[3]) if len(sys.argv) > 3 else 20
 
     pipeline = FoldSevenQualitativePipeline(ckpt)
     pipeline.clean_output_dir()
@@ -83,9 +84,10 @@ if __name__ == "__main__":
     if not all_images:
         all_images = sorted(glob.glob("data/**/*.png", recursive=True) + glob.glob("data/**/*.jpg", recursive=True))
 
-    selected_images = all_images[start_idx : start_idx + num_samples]
-    print(f"📸 Generating {len(selected_images)} new panels (indices {start_idx}..{start_idx + len(selected_images) - 1})...")
+    rng = random.Random(seed)
+    selected_images = rng.sample(all_images, min(count, len(all_images)))
+    print(f"📸 Generating {len(selected_images)} random panels across entire FGADR dataset (seed={seed})...")
 
     for path in selected_images:
         pipeline.process_case(path)
-    print("\n🎉 Qualitative inference for new batch completed successfully!")
+    print("\n🎉 Qualitative inference for 20 random cases completed successfully!")
