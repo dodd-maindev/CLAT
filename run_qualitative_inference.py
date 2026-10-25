@@ -3,13 +3,16 @@
 import glob
 import os
 import sys
-from typing import List, Optional
+import zipfile
+from typing import Optional
 import cv2
 import numpy as np
 import pandas as pd
 import torch
-from clat.model import CLAT
-from clat.visualization.qualitative_renderer import QualitativeRenderer
+
+sys.path.insert(0, os.path.abspath("src"))
+from clat.model import CLAT  # noqa: E402
+from clat.visualization.qualitative_renderer import QualitativeRenderer  # noqa: E402
 
 
 class QualitativeInferencePipeline:
@@ -20,14 +23,13 @@ class QualitativeInferencePipeline:
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.model = CLAT.load_from_checkpoint(checkpoint_path).to(self.device).eval()
         self.renderer = QualitativeRenderer(alpha=0.45)
-        self.disease_names = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
-        self.lesion_names = ["EX", "HE", "MA", "SE"]
+        self.diseases = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
+        self.lesions = ["EX", "HE", "MA", "SE"]
 
-    def infer_and_visualize(self, image_path: str, output_path: str, true_disease: str = "Unknown") -> None:
+    def infer_and_visualize(self, img_path: str, out_path: str, gt_label: str = "Unknown") -> None:
         """Executes forward pass with attention extraction and renders qualitative comparison."""
-        raw_bgr = cv2.imread(image_path)
+        raw_bgr = cv2.imread(img_path)
         if raw_bgr is None:
-            print(f"[Inference] Cannot read image: {image_path}")
             return
         raw_rgb = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB)
         img_384 = cv2.resize(raw_rgb, (384, 384))
@@ -40,19 +42,24 @@ class QualitativeInferencePipeline:
             l_probs = torch.sigmoid(output.lesion_logits)[0].cpu().numpy().tolist()
             cams = output.cams[0].cpu().numpy()
 
-        pred_disease = self.disease_names[int(np.argmax(d_probs))]
+        pred_label = self.diseases[int(np.argmax(d_probs))]
         self.renderer.render_patient_case(
-            img_384, cams, self.lesion_names, l_probs,
-            true_disease, pred_disease, d_probs, self.disease_names, output_path
+            img_384, cams, self.lesions, l_probs,
+            gt_label, pred_label, d_probs, self.diseases, out_path
         )
 
 
 def find_top_checkpoint() -> Optional[str]:
     """Scans Drive and local directories to find checkpoints from top-performing folds."""
-    priority_folds = [7, 4, 3, 1]
-    search_roots = ["/content/drive/MyDrive/FGADR_MILVT_Checkpoints", "/content/CLAT/log", "log"]
-    for root in search_roots:
-        for f in priority_folds:
+    drive_dir = "/content/drive/MyDrive/FGADR_MILVT_Checkpoints"
+    zip_path = os.path.join(drive_dir, "FGADR_MILVT_Full_Logs.zip")
+    if os.path.exists(zip_path) and not glob.glob(f"{drive_dir}/*fold_7*/**/*.ckpt", recursive=True):
+        print(f"📦 [Archive] Extracting {zip_path}...")
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            archive.extractall(drive_dir)
+
+    for root in [drive_dir, "/content/CLAT/log", "log"]:
+        for f in [7, 4, 3, 1, 2, 6, 8, 9]:
             matches = glob.glob(f"{root}/*fold_{f}*/**/*.ckpt", recursive=True)
             if matches:
                 return sorted(matches)[-1]
@@ -69,10 +76,17 @@ if __name__ == "__main__":
         sys.exit(1)
     print(f"🚀 [Qualitative Inference] Using top checkpoint: {ckpt}")
     pipeline = QualitativeInferencePipeline(ckpt)
-    sample_images = glob.glob("data/FGADR/fundus_384/*.png")[:8]
-    if not sample_images:
-        sample_images = glob.glob("data/**/*.png", recursive=True) + glob.glob("data/**/*.jpg", recursive=True)
-    for idx, path in enumerate(sample_images[:4]):
-        b_name = os.path.splitext(os.path.basename(path))[0]
-        out_file = os.path.join(out_dir, f"qualitative_case_{idx + 1}_{b_name}.png")
-        pipeline.infer_and_visualize(path, out_file, true_disease=f"Case #{idx + 1}")
+
+    gt_map = {}
+    if os.path.exists("data/annotation_FGADR_disease.csv"):
+        df = pd.read_csv("data/annotation_FGADR_disease.csv")
+        cols = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
+        for _, r in df.iterrows():
+            gt_map[str(r["ID"])] = cols[int(np.argmax(r[cols].values))]
+
+    imgs = glob.glob("data/FGADR/fundus_384/*.png")
+    for idx, path in enumerate(imgs[:6]):
+        case_id = os.path.splitext(os.path.basename(path))[0]
+        out_file = os.path.join(out_dir, f"case_{idx + 1}_{case_id}.png")
+        pipeline.infer_and_visualize(path, out_file, gt_label=gt_map.get(case_id, "Unknown"))
+
