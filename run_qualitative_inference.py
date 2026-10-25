@@ -49,7 +49,7 @@ class MultiFoldInferenceRunner:
     def evaluate_fold(self, fold_idx: int, ckpt_path: str, cases: List[dict]) -> None:
         """Executes qualitative inference for a single fold across selected patient cases."""
         print(f"\n🔬 [Fold {fold_idx}] Loading checkpoint: {ckpt_path}")
-        model = CLAT.load_from_checkpoint(ckpt_path).to(self.device).eval()
+        model = CLAT.load_from_checkpoint(ckpt_path, strict=False).to(self.device).eval()
         fold_out_dir = os.path.join(self.out_dir, f"fold_{fold_idx}")
         os.makedirs(fold_out_dir, exist_ok=True)
 

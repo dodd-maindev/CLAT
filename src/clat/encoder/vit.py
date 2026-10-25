@@ -204,6 +204,17 @@ class ViTConcept(vit.VisionTransformer):
         trunc_normal_(self.lesion_tokens, std=0.02)
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.disease_tokens, std=0.02)
+        self.use_dual_path_classifier = True
+
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    ):
+        """Detects whether disease classifier weights exist in loaded checkpoint."""
+        has_classifier = any(k.startswith(prefix + "disease_classifier.") for k in state_dict.keys())
+        self.use_dual_path_classifier = has_classifier
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        )
 
     def interpolate_pos_encoding(self, x, w, h):
         npatch = x.shape[1] - self.num_lesions
@@ -381,7 +392,10 @@ class ViTConcept(vit.VisionTransformer):
         out_value, cross_attn_maps = self.cross_attention(
             self.disease_tokens.repeat(n, 1, 1), lesion_tokens_i
         )
-        disease_logits = self.disease_classifier(out_value, patch_tokens, lesion_logits)
+        if getattr(self, "use_dual_path_classifier", True) and hasattr(self, "disease_classifier"):
+            disease_logits = self.disease_classifier(out_value, patch_tokens, lesion_logits)
+        else:
+            disease_logits = out_value.mean(dim=-1)
 
         if getattr(self, "capture_trace", False):
             self.last_forward_trace = {
