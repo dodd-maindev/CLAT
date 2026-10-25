@@ -33,10 +33,14 @@ class OrdinalDiseaseLoss(nn.Module):
             self.class_weights = None
         self.soft_qwk = SoftQuadraticWeightedKappaLoss(num_classes=num_classes)
         self.register_buffer("class_ranks", torch.arange(num_classes, dtype=torch.float32))
+        counts = torch.tensor([13.0, 209.0, 590.0, 646.0, 279.0], dtype=torch.float32)
+        self.register_buffer("log_priors", torch.log(counts / counts.sum()))
+        self.logit_tau = 0.35
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """Computes focal cross-entropy, continuous expected grade, and soft QWK loss."""
-        log_probabilities = F.log_softmax(logits, dim=-1)
+        train_logits = logits + self.logit_tau * self.log_priors if self.training else logits
+        log_probabilities = F.log_softmax(train_logits, dim=-1)
         probabilities = torch.exp(log_probabilities)
 
         if targets.dim() == 1:
@@ -61,7 +65,8 @@ class OrdinalDiseaseLoss(nn.Module):
         else:
             focal_loss = (focal_modulators * cross_entropy_per_sample).mean()
 
-        expected_grade = (probabilities * self.class_ranks).sum(dim=-1)
+        raw_probabilities = F.softmax(logits, dim=-1)
+        expected_grade = (raw_probabilities * self.class_ranks).sum(dim=-1)
         ord_loss = F.smooth_l1_loss(expected_grade, target_ranks, beta=0.5)
 
         total_loss = focal_loss + self.ordinal_weight * ord_loss
