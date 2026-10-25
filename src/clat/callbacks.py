@@ -150,6 +150,12 @@ class MetricsCaculator(Callback):
             output_file = os.path.join(trainer.log_dir, "test_metrics.json")
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(converted, f, indent=2)
+            parent_dir = os.path.dirname(trainer.log_dir)
+            if parent_dir and "log" in parent_dir:
+                parent_file = os.path.join(parent_dir, "test_metrics.json")
+                with open(parent_file, "w", encoding="utf-8") as f:
+                    json.dump(converted, f, indent=2)
+            print(f"\n✅ ĐÃ GHI THÀNH CÔNG FILE KẾT QUẢ: {output_file}")
 
     def on_save_checkpoint(
         self,
