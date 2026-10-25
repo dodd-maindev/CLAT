@@ -16,7 +16,7 @@ model:
     olap_ortho_weight: 0.02
     olap_spatial_weight: 0.0
     use_ordinal_loss: true
-    qwk_loss_weight: 0.25
+    qwk_loss_weight: 0.35
     disease_class_weights: [3.5, 1.8, 0.9, 0.9, 1.2]
     use_tta: true
 
@@ -24,7 +24,7 @@ optimizer:
   class_path: torch.optim.AdamW
   init_args:
     lr: 4e-5
-    weight_decay: 4e-4
+    weight_decay: 1e-3
 
 lr_scheduler:
   class_path: torch.optim.lr_scheduler.CosineAnnealingLR
