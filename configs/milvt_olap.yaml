@@ -5,8 +5,8 @@ model:
   init_args:
     arch_name: MIL_VT_Concept
     pretrained: true
-    disease_loss_weight: 0.8
-    lesion_loss_weight: 1.0
+    disease_loss_weight: 1.0
+    lesion_loss_weight: 0.6
     KG_loss_weight: 0.4
     with_EK: true
     training_int_prob: null
@@ -16,14 +16,14 @@ model:
     olap_ortho_weight: 0.02
     olap_spatial_weight: 0.0
     use_ordinal_loss: true
-    qwk_loss_weight: 0.2
-    disease_class_weights: [2.0, 1.1, 1.0, 1.0, 1.1]
+    qwk_loss_weight: 0.25
+    disease_class_weights: [3.5, 1.8, 0.9, 0.9, 1.2]
 
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
     lr: 4e-5
-    weight_decay: 3e-4
+    weight_decay: 4e-4
 
 lr_scheduler:
   class_path: torch.optim.lr_scheduler.CosineAnnealingLR
