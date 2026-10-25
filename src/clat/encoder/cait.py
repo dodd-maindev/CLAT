@@ -698,7 +698,7 @@ class CaiTConcept(cait_models):
         out_value, cross_attn_maps = self.cross_attention(
             self.class_tokens.repeat(n, 1, 1), concept_logits_i
         )
-        class_logits = self.disease_classifier(out_value, patch_tokens)
+        class_logits = self.disease_classifier(out_value, patch_tokens, concept_logits)
 
         if return_attn:
             feature_map = concept_patch.detach().clone()  # B * num_lesions * 14 * 14
