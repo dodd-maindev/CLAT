@@ -13,11 +13,7 @@ import torch.nn.functional as F
 from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
 
-from clat.olap import (
-    DualPathDiseaseClassifier,
-    OrthogonalAdaptivePoolingConceptHead,
-    TrainMaskProvider,
-)
+from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
 from clat.utils import CLATOutput, CrossAttention, load_milvt_ckpt, load_timm_weights
 
 __all__ = [
@@ -194,10 +190,6 @@ class ViTConcept(vit.VisionTransformer):
             dim=self.embed_dim,
             n_outputs=self.embed_dim,
             num_heads=8,
-        )
-        self.disease_classifier = DualPathDiseaseClassifier(
-            embed_dim=self.embed_dim,
-            num_classes=self.num_classes,
         )
 
         trunc_normal_(self.pos_embed_lesion, std=0.02)
@@ -381,7 +373,7 @@ class ViTConcept(vit.VisionTransformer):
         out_value, cross_attn_maps = self.cross_attention(
             self.disease_tokens.repeat(n, 1, 1), lesion_tokens_i
         )
-        disease_logits = self.disease_classifier(out_value, patch_tokens, lesion_logits)
+        disease_logits = out_value.mean(dim=-1)
 
         if getattr(self, "capture_trace", False):
             self.last_forward_trace = {
