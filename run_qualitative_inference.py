@@ -1,4 +1,4 @@
-"""Executes single-row qualitative inference pipeline on top Fold 7 model across 10 cases."""
+"""Executes single-row qualitative inference pipeline on top Fold 7 model across 10 new cases."""
 
 import glob
 import os
@@ -23,6 +23,16 @@ class FoldSevenQualitativePipeline:
         self.renderer = QualitativeRenderer()
         self.out_dir = out_dir
         os.makedirs(self.out_dir, exist_ok=True)
+
+    def clean_output_dir(self) -> None:
+        """Removes previous image files in output directory."""
+        old_files = glob.glob(os.path.join(self.out_dir, "*.png"))
+        for f in old_files:
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        print(f"🧹 Cleaned {len(old_files)} previous figures from {self.out_dir}")
 
     def extract_cams(self, img_384: np.ndarray) -> np.ndarray:
         """Runs forward pass with attention extraction and returns 4-channel CAMs."""
@@ -63,16 +73,19 @@ if __name__ == "__main__":
         print("[Error] No valid Fold 7 checkpoint found.")
         sys.exit(1)
 
-    print(f"🚀 [Qualitative Pipeline] Using Fold 7 checkpoint: {ckpt}")
+    start_idx = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+    num_samples = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+
     pipeline = FoldSevenQualitativePipeline(ckpt)
+    pipeline.clean_output_dir()
 
-    all_images = glob.glob("data/FGADR/fundus_384/*.png")
+    all_images = sorted(glob.glob("data/FGADR/fundus_384/*.png"))
     if not all_images:
-        all_images = glob.glob("data/**/*.png", recursive=True) + glob.glob("data/**/*.jpg", recursive=True)
+        all_images = sorted(glob.glob("data/**/*.png", recursive=True) + glob.glob("data/**/*.jpg", recursive=True))
 
-    selected_images = all_images[:10]
-    print(f"📸 Generating qualitative panels for {len(selected_images)} patient cases...")
+    selected_images = all_images[start_idx : start_idx + num_samples]
+    print(f"📸 Generating {len(selected_images)} new panels (indices {start_idx}..{start_idx + len(selected_images) - 1})...")
 
     for path in selected_images:
         pipeline.process_case(path)
-    print("\n🎉 Qualitative inference for Fold 7 completed successfully!")
+    print("\n🎉 Qualitative inference for new batch completed successfully!")
