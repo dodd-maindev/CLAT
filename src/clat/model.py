@@ -92,6 +92,11 @@ class CLAT(LightningModule):
         self.lesion_loss_weight = lesion_loss_weight
         self.KG_loss_weight = KG_loss_weight
 
+        weights_tensor = (
+            torch.tensor(disease_class_weights, dtype=torch.float32)
+            if disease_class_weights is not None
+            else None
+        )
         if use_ordinal_loss and self.num_disease > 2:
             self.loss_disease = OrdinalDiseaseLoss(
                 num_classes=self.num_disease,
@@ -100,7 +105,9 @@ class CLAT(LightningModule):
                 qwk_weight=qwk_loss_weight,
             )
         else:
-            self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
+            self.loss_disease = nn.CrossEntropyLoss(
+                weight=weights_tensor, label_smoothing=0.05
+            )
         self.loss_lesion = nn.MultiLabelSoftMarginLoss()
         self.loss_knowledge_guide = KnowledgeGuideLoss(knowledge_embeds)
 
