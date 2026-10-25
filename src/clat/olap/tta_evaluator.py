@@ -53,7 +53,7 @@ class TestTimeAugmentationEvaluator:
             disease_logits=safe_disease_logits,
             lesion_logits=safe_lesion_logits,
             lesion_tokens=out_first.lesion_tokens,
-            concept_masks=None,
-            attn_weights=None,
-            cross_attn_maps=None,
+            cams=getattr(out_first, "cams", None),
+            patch_attns=getattr(out_first, "patch_attns", None),
+            cross_attn_maps=getattr(out_first, "cross_attn_maps", None),
         )
