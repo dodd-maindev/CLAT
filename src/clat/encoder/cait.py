@@ -9,11 +9,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
 
-from clat.olap import (
-    DualPathDiseaseClassifier,
-    OrthogonalAdaptivePoolingConceptHead,
-    TrainMaskProvider,
-)
+from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
 
 __all__ = [
@@ -25,9 +21,8 @@ __all__ = [
 ]
 
 
-def cait_xs24_384_concept(pretrained=False, img_size=384, **kwargs):
+def cait_xs24_384_concept(pretrained=False, **kwargs):
     model = CaiTConcept(
-        img_size=img_size,
         embed_dim=288,
         depth=24,
         num_heads=6,
@@ -40,9 +35,8 @@ def cait_xs24_384_concept(pretrained=False, img_size=384, **kwargs):
     return model
 
 
-def cait_xxs24_384_concept(pretrained=False, img_size=384, **kwargs):
+def cait_xxs24_384_concept(pretrained=False, **kwargs):
     model = CaiTConcept(
-        img_size=img_size,
         embed_dim=192,
         depth=24,
         num_heads=4,
@@ -503,10 +497,6 @@ class CaiTConcept(cait_models):
             n_outputs=self.embed_dim,
             num_heads=8,
         )
-        self.disease_classifier = DualPathDiseaseClassifier(
-            embed_dim=self.embed_dim,
-            num_classes=self.num_classes,
-        )
 
         trunc_normal_(self.pos_embed_concept_cls, std=0.02)
         trunc_normal_(self.concept_cls_token, std=0.02)
@@ -623,11 +613,9 @@ class CaiTConcept(cait_models):
         attention_type="fused",
         lesion_lbls: Optional[torch.Tensor] = None,
         image_ids: Optional[Union[list[str], tuple[str, ...]]] = None,
-        doctor_masks: Optional[torch.Tensor] = None,
         intervene_sample_idx: Optional[Union[int, torch.Tensor]] = None,
         intervene_cpt_idx: Optional[list[int]] = None,
         int_prob: Optional[float] = None,
-        **kwargs,
     ):
         w, h = x.shape[2:]
         (
@@ -649,7 +637,6 @@ class CaiTConcept(cait_models):
             )  # B * 14 * 14 * 384
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])  # B * 384 * 14 * 14
         patch_tokens = patch_tokens.contiguous()
-        concept_patch = self.head(patch_tokens)
         if self.olap_head is not None:
             (
                 concept_logits,
@@ -657,10 +644,17 @@ class CaiTConcept(cait_models):
                 global_concept_logits,
                 ortho_loss,
                 concept_patch,
-            ) = self.olap_head(concept_patch, concept_tokens)
+            ) = self.olap_head(patch_tokens, concept_tokens)
             self.current_ortho_loss = ortho_loss
-            self.current_spatial_loss = torch.tensor(0.0, device=concept_tokens.device)
+            self.current_spatial_loss = self._compute_spatial_loss(
+                concept_patch,
+                attn_weights_concepts,
+                n,
+                lesion_lbls=lesion_lbls,
+                image_ids=image_ids,
+            )
         else:
+            concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
             concept_patch_pooled = F.adaptive_max_pool2d(
                 concept_patch, (1, 1)
             )  # B * num_lesions * 1 * 1
@@ -698,7 +692,7 @@ class CaiTConcept(cait_models):
         out_value, cross_attn_maps = self.cross_attention(
             self.class_tokens.repeat(n, 1, 1), concept_logits_i
         )
-        class_logits = self.disease_classifier(out_value, patch_tokens, concept_logits)
+        class_logits = out_value.mean(dim=-1)
 
         if return_attn:
             feature_map = concept_patch.detach().clone()  # B * num_lesions * 14 * 14
