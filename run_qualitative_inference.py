@@ -1,98 +1,78 @@
-"""Executes qualitative clinical grid inference across models and doctor ground truth."""
+"""Executes single-row qualitative inference pipeline on top Fold 7 model across 10 cases."""
 
 import glob
 import os
 import sys
-from typing import List
+from typing import Optional
 import cv2
 import numpy as np
 import torch
 
 sys.path.insert(0, os.path.abspath("src"))
 from clat.model import CLAT  # noqa: E402
-from clat.visualization import CheckpointManager, GroundTruthProvider, QualitativeRenderer  # noqa: E402
+from clat.visualization import CheckpointManager, QualitativeRenderer  # noqa: E402
 
 
-class ClinicalGridInferencePipeline:
-    """Orchestrates generation of publication-style clinical comparison grids."""
+class FoldSevenQualitativePipeline:
+    """Coordinates qualitative visualization for top-performing Fold 7 model."""
 
-    def __init__(self, out_dir: str = "qualitative_results") -> None:
-        """Initializes device, renderer, and ground-truth provider."""
+    def __init__(self, checkpoint_path: str, out_dir: str = "qualitative_results/fold_7") -> None:
+        """Initializes device, model, and renderer."""
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.out_dir = out_dir
+        self.model = CLAT.load_from_checkpoint(checkpoint_path, strict=False).to(self.device).eval()
         self.renderer = QualitativeRenderer()
-        self.gt_provider = GroundTruthProvider()
+        self.out_dir = out_dir
         os.makedirs(self.out_dir, exist_ok=True)
 
-    def extract_cams(self, model: CLAT, img_384: np.ndarray) -> np.ndarray:
+    def extract_cams(self, img_384: np.ndarray) -> np.ndarray:
         """Runs forward pass with attention extraction and returns 4-channel CAMs."""
         norm = (img_384 / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
         tensor = torch.tensor(norm, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            output = model(tensor, return_attn=True)
+            output = self.model(tensor, return_attn=True)
             return output.cams[0].cpu().numpy()
 
-    def process_case(self, case_id: str, img_path: str, model_runs: List[dict], out_path: str) -> None:
-        """Renders multi-row clinical grid comparing Doctor GT against model CAMs."""
+    def process_case(self, img_path: str) -> None:
+        """Processes a single retinal image and saves 1-row 5-column qualitative figure."""
+        case_id = os.path.splitext(os.path.basename(img_path))[0]
         raw_bgr = cv2.imread(img_path)
         if raw_bgr is None:
             return
         img_384 = cv2.resize(cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB), (384, 384))
-        gt_masks = self.gt_provider.get_lesion_masks(case_id, 384, 384)
-
-        for run in model_runs:
-            if "cams" not in run:
-                run["cams"] = self.extract_cams(run["model"], img_384)
-
-        self.renderer.render_case_grid(img_384, case_id, gt_masks, model_runs, out_path)
+        cams = self.extract_cams(img_384)
+        save_path = os.path.join(self.out_dir, f"case_{case_id}.png")
+        self.renderer.render_single_row(img_384, case_id, cams, "OLAP (Fold 7)", save_path)
 
 
-def find_target_cases(gt_prov: GroundTruthProvider) -> List[dict]:
-    """Finds available clinical cases with doctor ground truth masks across DDR and FGADR."""
-    active_ids = gt_prov.find_cases_with_active_masks()
-    print(f"🔍 Discovered {len(active_ids)} image IDs with doctor segmentation masks on disk.")
-
-    search_roots = ["data", "/content/CLAT/data", "/content/drive/MyDrive"]
-    found = []
-    for cid in active_ids:
-        for root in search_roots:
-            if not os.path.exists(root):
-                continue
-            matches = glob.glob(f"{root}/**/{cid}.jpg", recursive=True) + glob.glob(f"{root}/**/{cid}.png", recursive=True)
-            if matches:
-                found.append({"id": cid, "path": matches[0]})
-                break
-        if len(found) >= 4:
-            break
-
-    if not found:
-        print("⚠️ [Warning] No images matched active masks. Using available dataset fundus images.")
-        all_imgs = glob.glob("data/**/*.png", recursive=True) + glob.glob("data/**/*.jpg", recursive=True)
-        for p in all_imgs[:4]:
-            found.append({"id": os.path.splitext(os.path.basename(p))[0], "path": p})
-    return found
-
-
-if __name__ == "__main__":
+def find_fold_checkpoint(target_fold: int = 7) -> Optional[str]:
+    """Finds highest epoch checkpoint for specified fold."""
     search_dirs = ["/content/drive/MyDrive/FGADR_MILVT_Checkpoints", "/content/CLAT/log", "log"]
     manager = CheckpointManager(search_dirs)
     all_folds = manager.find_all_folds()
-    if not all_folds:
-        print("[Error] No fold checkpoints found.")
+    if target_fold in all_folds:
+        return all_folds[target_fold]
+    for fallback in [4, 3, 1, 0, 2, 6, 8, 9]:
+        if fallback in all_folds:
+            return all_folds[fallback]
+    return None
+
+
+if __name__ == "__main__":
+    ckpt = sys.argv[1] if len(sys.argv) > 1 and os.path.exists(sys.argv[1]) else find_fold_checkpoint(7)
+    if not ckpt or not os.path.exists(ckpt):
+        print("[Error] No valid Fold 7 checkpoint found.")
         sys.exit(1)
 
-    pipeline = ClinicalGridInferencePipeline("qualitative_results")
-    cases = find_target_cases(pipeline.gt_provider)
-    print(f"🎯 Evaluating {len(cases)} clinical cases across {len(all_folds)} folds.")
+    print(f"🚀 [Qualitative Pipeline] Using Fold 7 checkpoint: {ckpt}")
+    pipeline = FoldSevenQualitativePipeline(ckpt)
 
-    for fold_num, ckpt_path in sorted(all_folds.items()):
-        print(f"\n🔬 [Fold {fold_num}] Loading: {ckpt_path}")
-        model = CLAT.load_from_checkpoint(ckpt_path, strict=False).to(pipeline.device).eval()
-        fold_dir = os.path.join(pipeline.out_dir, f"fold_{fold_num}")
-        os.makedirs(fold_dir, exist_ok=True)
+    all_images = glob.glob("data/FGADR/fundus_384/*.png")
+    if not all_images:
+        all_images = glob.glob("data/**/*.png", recursive=True) + glob.glob("data/**/*.jpg", recursive=True)
 
-        for case in cases:
-            runs = [{"label": f"OLAP (Fold {fold_num})", "color": "navy", "model": model}]
-            out_file = os.path.join(fold_dir, f"clinical_grid_{case['id']}.png")
-            pipeline.process_case(case["id"], case["path"], runs, out_file)
-    print("\n🎉 Clinical grid generation completed successfully!")
+    selected_images = all_images[:10]
+    print(f"📸 Generating qualitative panels for {len(selected_images)} patient cases...")
+
+    for path in selected_images:
+        pipeline.process_case(path)
+    print("\n🎉 Qualitative inference for Fold 7 completed successfully!")
