@@ -28,11 +28,12 @@ class TestTimeAugmentationEvaluator:
         model_forward_fn,
         images: torch.Tensor,
         lesion_labels: Optional[torch.Tensor] = None,
+        return_attn: bool = False,
     ) -> CLATOutput:
         """Averages softmax probabilities and lesion activations across all dihedral views."""
         views = self.generate_views(images)
 
-        out_first = model_forward_fn(views[0], return_attn=False, lesion_lbls=lesion_labels)
+        out_first = model_forward_fn(views[0], return_attn=return_attn, lesion_lbls=lesion_labels)
         sum_disease_prob = out_first.disease_logits.softmax(dim=-1)
         sum_lesion_prob = out_first.lesion_logits.sigmoid()
 

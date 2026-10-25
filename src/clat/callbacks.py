@@ -180,8 +180,9 @@ class GenHeatmap(Callback):
         dataloader_idx: int = 0,
     ) -> None:
         img_size = pl_module.img_size
-        logger = pl_module.logger.experiment.add_image  # type: ignore
-        cams = outputs["cams"]
+        cams = outputs.get("cams", None) if isinstance(outputs, dict) else getattr(outputs, "cams", None)
+        if cams is None:
+            return
         disease_logits = outputs["disease_logits"]
         disease_lbls = batch.disease_lbls
         img_ids = batch.id

@@ -126,7 +126,9 @@ class CLAT(LightningModule):
         output: CLATOutput
         # forward
         if (stage in ("val", "test")) and getattr(self, "use_tta", False):
-            output = self.tta_evaluator.evaluate(self, images, lesion_lbls)
+            output = self.tta_evaluator.evaluate(
+                self, images, lesion_lbls, return_attn=(stage == "test")
+            )
         elif (
             self.training
             and self.training_int_prob
