@@ -50,9 +50,10 @@ class OrdinalDiseaseLoss(nn.Module):
 
         focal_modulators = torch.pow(1.0 - target_probabilities.clamp(0.0, 1.0), self.focal_gamma)
 
-        smoothed_targets = targets_one_hot * (1.0 - self.label_smoothing) + (
-            self.label_smoothing / self.num_classes
-        )
+        # Gaussian Ordinal smoothing aligned with Quadratic Weighted Kappa topology
+        distances_sq = (self.class_ranks.unsqueeze(0) - target_ranks.unsqueeze(1)) ** 2
+        gaussian_targets = torch.exp(-distances_sq / (2.0 * (0.65 ** 2)))
+        smoothed_targets = gaussian_targets / gaussian_targets.sum(dim=-1, keepdim=True)
         cross_entropy_per_sample = -(smoothed_targets * log_probabilities).sum(dim=-1)
 
         if self.class_weights is not None and targets.dim() == 1:
