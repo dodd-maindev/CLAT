@@ -47,15 +47,26 @@ class ClinicalGridInferencePipeline:
         self.renderer.render_case_grid(img_384, case_id, gt_masks, model_runs, out_path)
 
 
-def find_target_cases() -> List[dict]:
-    """Finds available clinical cases with ground truth across DDR and FGADR."""
-    priority_ids = ["007-4250-200", "007-2852-100", "007-7235-400", "0000_1", "0003_3", "0007_2"]
+def find_target_cases(gt_prov: GroundTruthProvider) -> List[dict]:
+    """Finds available clinical cases with doctor ground truth masks across DDR and FGADR."""
+    active_ids = gt_prov.find_cases_with_active_masks()
+    print(f"🔍 Discovered {len(active_ids)} image IDs with doctor segmentation masks on disk.")
+
+    search_roots = ["data", "/content/CLAT/data", "/content/drive/MyDrive"]
     found = []
-    for cid in priority_ids:
-        matches = glob.glob(f"data/**/{cid}.jpg", recursive=True) + glob.glob(f"data/**/{cid}.png", recursive=True)
-        if matches:
-            found.append({"id": cid, "path": matches[0]})
+    for cid in active_ids:
+        for root in search_roots:
+            if not os.path.exists(root):
+                continue
+            matches = glob.glob(f"{root}/**/{cid}.jpg", recursive=True) + glob.glob(f"{root}/**/{cid}.png", recursive=True)
+            if matches:
+                found.append({"id": cid, "path": matches[0]})
+                break
+        if len(found) >= 4:
+            break
+
     if not found:
+        print("⚠️ [Warning] No images matched active masks. Using available dataset fundus images.")
         all_imgs = glob.glob("data/**/*.png", recursive=True) + glob.glob("data/**/*.jpg", recursive=True)
         for p in all_imgs[:4]:
             found.append({"id": os.path.splitext(os.path.basename(p))[0], "path": p})
@@ -71,7 +82,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     pipeline = ClinicalGridInferencePipeline("qualitative_results")
-    cases = find_target_cases()
+    cases = find_target_cases(pipeline.gt_provider)
     print(f"🎯 Evaluating {len(cases)} clinical cases across {len(all_folds)} folds.")
 
     for fold_num, ckpt_path in sorted(all_folds.items()):

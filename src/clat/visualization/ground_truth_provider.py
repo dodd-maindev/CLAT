@@ -13,6 +13,7 @@ class GroundTruthProvider:
     """Manages clinical ground-truth metadata and doctor segmentation masks."""
 
     LESION_CODES = ["EX", "HE", "MA", "SE"]
+    SEARCH_ROOTS = ["data", "/content/CLAT/data", "/content/drive/MyDrive"]
 
     def __init__(self, data_root: str = "data") -> None:
         """Initializes disease and lesion annotations with mask provider."""
@@ -31,9 +32,15 @@ class GroundTruthProvider:
                 for _, r in df.iterrows():
                     self.disease_map[str(r["ID"])] = cols[int(np.argmax(r[cols].values))]
 
-    def get_disease(self, img_id: str) -> str:
-        """Returns clinical ground-truth disease grade."""
-        return self.disease_map.get(img_id, "Unknown")
+    def find_cases_with_active_masks(self) -> List[str]:
+        """Scans for image IDs that actually have doctor segmentation mask files on disk."""
+        active_ids = set(self.mask_provider._index.keys())
+        for root in self.SEARCH_ROOTS:
+            if not os.path.exists(root):
+                continue
+            for p in glob.glob(f"{root}/**/*.tif", recursive=True):
+                active_ids.add(os.path.splitext(os.path.basename(p))[0])
+        return sorted(list(active_ids))
 
     def get_lesion_masks(self, img_id: str, h: int = 384, w: int = 384) -> Dict[str, Optional[np.ndarray]]:
         """Returns individual 2D masks for each lesion code EX, HE, MA, SE."""
@@ -45,11 +52,18 @@ class GroundTruthProvider:
             return masks
 
         for code in self.LESION_CODES:
-            for ext in [".tif", ".tiff", ".png", ".jpg"]:
-                matches = glob.glob(f"data/**/{code}/{img_id}{ext}", recursive=True)
-                if matches:
-                    loaded = cv2.imread(matches[0], cv2.IMREAD_GRAYSCALE)
-                    if loaded is not None:
-                        masks[code] = cv2.resize(loaded, (w, h), interpolation=cv2.INTER_NEAREST)
-                        break
+            for root in self.SEARCH_ROOTS:
+                if not os.path.exists(root):
+                    continue
+                matches = glob.glob(f"{root}/**/{code}/{img_id}.*", recursive=True) + glob.glob(
+                    f"{root}/**/label/{code}/{img_id}.*", recursive=True
+                )
+                for m in matches:
+                    if m.lower().endswith((".tif", ".tiff", ".png", ".jpg")):
+                        loaded = cv2.imread(m, cv2.IMREAD_GRAYSCALE)
+                        if loaded is not None and loaded.max() > 0:
+                            masks[code] = cv2.resize(loaded, (w, h), interpolation=cv2.INTER_NEAREST)
+                            break
+                if masks[code] is not None:
+                    break
         return masks
