@@ -23,14 +23,29 @@ class FgaddrMilvtCrossValidationRunner:
         self.config_path, self.data_config_path = config_path, data_config_path
         self.experiment_prefix, self.drive_sync = experiment_prefix, drive_sync
 
+    def _sync_to_drive(self, fold_name: str) -> None:
+        """Safely synchronizes generated checkpoints and metrics to Google Drive."""
+        if not (self.drive_sync and os.path.exists("/content/drive")):
+            return
+        dest = os.path.join(self.drive_sync, fold_name)
+        os.makedirs(dest, exist_ok=True)
+        patterns = [f"log/{fold_name}/**/*.ckpt", f"log/{fold_name}/**/test_metrics.json"]
+        for pattern in patterns:
+            for f in glob.glob(pattern, recursive=True):
+                target = os.path.join(dest, os.path.basename(f))
+                try:
+                    if not (os.path.exists(target) and os.path.samefile(f, target)):
+                        shutil.copy2(f, dest)
+                except Exception:
+                    pass
+        os.system("sync")
+        print(f"[Drive Sync] Checkpoints and metrics synchronized to {dest}")
+
     def execute_single_fold(self, fold_index: int) -> int:
         """Executes fit and test subcommands for a single cross-validation fold."""
         fold_name = f"{self.experiment_prefix}_fold_{fold_index}"
         fold_dir, bkp = f"log/{fold_name}", f"log/{fold_name}_prev"
         if os.path.exists(fold_dir):
-            for item in os.listdir(fold_dir):
-                if item.startswith("version_") and not item.replace("version_", "").isdigit():
-                    shutil.rmtree(os.path.join(fold_dir, item), ignore_errors=True)
             if os.path.exists(bkp):
                 shutil.rmtree(bkp)
             shutil.move(fold_dir, bkp)
@@ -43,15 +58,8 @@ class FgaddrMilvtCrossValidationRunner:
         status = subprocess.run(cmd).returncode
         if status != 0 and os.path.exists(bkp):
             shutil.move(bkp, fold_dir)
-        elif status == 0 and self.drive_sync and os.path.exists("/content/drive"):
-            dest = os.path.join(self.drive_sync, fold_name)
-            os.makedirs(dest, exist_ok=True)
-            for f in glob.glob(f"log/{fold_name}/**/*.ckpt", recursive=True):
-                shutil.copy2(f, dest)
-            for f in glob.glob(f"log/{fold_name}/**/test_metrics.json", recursive=True):
-                shutil.copy2(f, dest)
-            os.system("sync")
-            print(f"[Drive Sync] Checkpoints and metrics copied to {dest}")
+        elif status == 0:
+            self._sync_to_drive(fold_name)
         return status
 
     def aggregate_metrics(self, total_folds: int = 10) -> Optional[pd.DataFrame]:
@@ -67,14 +75,17 @@ class FgaddrMilvtCrossValidationRunner:
                     records.append(entry)
         if not records:
             return None
-        df = pd.DataFrame(records)
-        df = df[["Fold"] + [c for c in df.columns if c != "Fold"]]
+        df = pd.DataFrame(records)[["Fold"] + [c for c in pd.DataFrame(records).columns if c != "Fold"]]
         os.makedirs("log", exist_ok=True)
         csv_path = "log/10folds_results_fgaddr_milvt_olap.csv"
         df.to_csv(csv_path, index=False)
         if self.drive_sync and os.path.exists("/content/drive"):
-            os.makedirs(self.drive_sync, exist_ok=True)
-            shutil.copy2(csv_path, os.path.join(self.drive_sync, "10folds_results_fgaddr_milvt_olap.csv"))
+            target_csv = os.path.join(self.drive_sync, os.path.basename(csv_path))
+            try:
+                if not (os.path.exists(target_csv) and os.path.samefile(csv_path, target_csv)):
+                    shutil.copy2(csv_path, target_csv)
+            except Exception:
+                pass
         self._print_summary(df)
         return df
 
