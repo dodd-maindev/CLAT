@@ -5,8 +5,8 @@ model:
   init_args:
     arch_name: cait_xs24_384_concept
     pretrained: true
-    disease_loss_weight: 1.0
-    lesion_loss_weight: 0.6
+    disease_loss_weight: 0.6
+    lesion_loss_weight: 1.0
     KG_loss_weight: 0.4
     with_EK: true
     training_int_prob: null
@@ -15,10 +15,8 @@ model:
     olap_initial_power: 3.0
     olap_ortho_weight: 0.02
     olap_spatial_weight: 0.0
-    use_ordinal_loss: true
-    qwk_loss_weight: 1.0
-    disease_class_weights: [1.0, 1.8, 0.8, 1.6, 1.0]
-    use_tta: true
+    use_ordinal_loss: false
+    use_tta: false
 
 optimizer:
   class_path: torch.optim.AdamW
@@ -29,7 +27,7 @@ optimizer:
 lr_scheduler:
   class_path: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
   init_args:
-    T_0: 10
+    T_0: 15
     T_mult: 2
     eta_min: 1e-6
 
@@ -49,11 +47,11 @@ trainer:
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
-        monitor: val/priority_score
+        monitor: val/kappa
         mode: max
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
-        monitor: val/priority_score
+        monitor: val/kappa
         mode: max
         patience: 25
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor

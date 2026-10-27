@@ -169,7 +169,7 @@ class CLAT(LightningModule):
             else 0
         )
         concept_features = self.token2concept(output.lesion_tokens)
-        if hasattr(self, "knowledge_graph"):
+        if hasattr(self, "knowledge_graph") and not str(getattr(self.hparams, "arch_name", "")).startswith("cait"):
             concept_features = self.knowledge_graph(concept_features)
         KG_loss = (
             self.loss_knowledge_guide(concept_features, lesion_lbls)
