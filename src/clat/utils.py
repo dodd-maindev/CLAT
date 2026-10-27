@@ -252,9 +252,9 @@ def fit_rs2table(
     table.field_names = [f"Epoch {epoch}", *train_metrics.keys()]
     table.add_row(["Train"] + [f"{v:.2%}" for v in train_metrics.values()])
     table.add_row(["Val"] + [f"{v:.2%}" for v in val_metrics.values()])
-    if best_metrics and best_epoch:
+    if best_metrics and best_epoch is not None:
         table.add_row(
-            [f"Best ep{best_epoch}"] + [f"{v:.2%}" for v in best_metrics.values()]
+            [f"Best ep{best_epoch}"] + [f"{best_metrics.get(k, 0.0):.2%}" for k in train_metrics.keys()]
         )
     return table
 

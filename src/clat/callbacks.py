@@ -93,8 +93,16 @@ class MetricsCaculator(Callback):
         self.val_metrics.reset()
         self.current_val_rs = val_rs
 
-        if self.best_metrics is None or val_rs.get("kappa", 0.0) > self.best_metrics.get("kappa", 0.0):
-            self.best_metrics = val_rs
+        priority_score = self.priority_calculator.compute(val_rs).to(pl_module.device)
+        current_priority = float(priority_score.item())
+        best_priority = (
+            float(self.priority_calculator.compute(self.best_metrics).item())
+            if self.best_metrics is not None
+            else -1.0
+        )
+
+        if self.best_metrics is None or current_priority > best_priority:
+            self.best_metrics = dict(val_rs)
             self.best_epoch = trainer.current_epoch
 
         table = fit_rs2table(
