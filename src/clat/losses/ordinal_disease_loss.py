@@ -18,6 +18,7 @@ class OrdinalDiseaseLoss(nn.Module):
         focal_gamma: float = 0.5,
         qwk_weight: float = 0.2,
         ordinal_weight: float = 1.0,
+        gaussian_sigma: float = 0.55,
     ) -> None:
         """Initializes focal ordinal disease loss with class weights and expected grade loss."""
         super().__init__()
@@ -26,6 +27,7 @@ class OrdinalDiseaseLoss(nn.Module):
         self.focal_gamma = focal_gamma
         self.qwk_weight = qwk_weight
         self.ordinal_weight = ordinal_weight
+        self.gaussian_sigma = gaussian_sigma
         if class_weights is not None:
             weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
             self.register_buffer("class_weights", weights_tensor)
@@ -52,7 +54,7 @@ class OrdinalDiseaseLoss(nn.Module):
 
         # Gaussian Ordinal smoothing aligned with Quadratic Weighted Kappa topology
         distances_sq = (self.class_ranks.unsqueeze(0) - target_ranks.unsqueeze(1)) ** 2
-        gaussian_targets = torch.exp(-distances_sq / (2.0 * (0.65 ** 2)))
+        gaussian_targets = torch.exp(-distances_sq / (2.0 * (self.gaussian_sigma ** 2)))
         smoothed_targets = gaussian_targets / gaussian_targets.sum(dim=-1, keepdim=True)
         cross_entropy_per_sample = -(smoothed_targets * log_probabilities).sum(dim=-1)
 

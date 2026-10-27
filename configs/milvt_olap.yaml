@@ -16,8 +16,8 @@ model:
     olap_ortho_weight: 0.02
     olap_spatial_weight: 0.0
     use_ordinal_loss: true
-    qwk_loss_weight: 0.35
-    disease_class_weights: [3.5, 1.8, 0.9, 0.9, 1.2]
+    qwk_loss_weight: 0.42
+    disease_class_weights: [1.2, 2.6, 0.8, 1.1, 2.4]
     use_tta: true
 
 optimizer:
