@@ -15,8 +15,10 @@ model:
     olap_initial_power: 3.0
     olap_ortho_weight: 0.02
     olap_spatial_weight: 0.0
-    use_ordinal_loss: false
-    use_tta: false
+    use_ordinal_loss: true
+    qwk_loss_weight: 0.25
+    disease_class_weights: [1.0, 1.8, 0.6, 1.0, 1.6]
+    use_tta: true
 
 optimizer:
   class_path: torch.optim.AdamW
