@@ -4,6 +4,6 @@ init_args:
   disease_names: ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
   lesion_names: ["EX", "HE", "MA", "SE"]
   kfold: 10
-  fold_num: 1
+  fold_num: 0
   batch_size: 16
   img_size: 384
