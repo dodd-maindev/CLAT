@@ -1,10 +1,9 @@
 """Preprocessing utility for DDR retinal fundus dataset."""
 
 import os
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from glob import glob
-from typing import Set, Tuple
+from typing import Optional, Set, Tuple
 import cv2
 import pandas as pd
 from PIL import Image, ImageOps
@@ -28,17 +27,6 @@ class DdrDatasetPreprocessor:
         self.annotation_path = annotation_path
         self.image_size = image_size
         self.max_workers = max_workers
-
-    def _auto_extract_zip_parts(self) -> None:
-        """Extracts multi-part zip archives if extracted directory is empty."""
-        zip_candidates = sorted(glob(os.path.expanduser("~/workspace_clat/DDR-Dataset/*.zip")))
-        if not zip_candidates:
-            return
-        os.makedirs(self.source_dir, exist_ok=True)
-        print(f"Found {len(zip_candidates)} archives. Extracting to {self.source_dir}...")
-        for archive_path in tqdm(zip_candidates, desc="Extracting archives"):
-            with zipfile.ZipFile(archive_path, "r") as archive:
-                archive.extractall(self.source_dir)
 
     def _pad_square(self, image: Image.Image) -> Image.Image:
         """Pads an image with zeros to make width and height equal."""
@@ -67,23 +55,21 @@ class DdrDatasetPreprocessor:
             pil_image = pil_image.crop(
                 (column_indices[0], row_indices[0], column_indices[-1] + 1, row_indices[-1] + 1)
             )
-        squared = self._pad_square(pil_image)
-        squared.resize((self.image_size, self.image_size), Image.BILINEAR).save(target_path, "JPEG")
+        squared_image = self._pad_square(pil_image)
+        resized_image = squared_image.resize((self.image_size, self.image_size), Image.BILINEAR)
+        resized_image.save(target_path, "JPEG")
 
     def run(self) -> None:
         """Scans extracted DDR files and executes concurrent preprocessing."""
         os.makedirs(self.target_dir, exist_ok=True)
-        all_files = glob(f"{self.source_dir}/**/*.*", recursive=True)
-        if not all_files:
-            self._auto_extract_zip_parts()
-            all_files = glob(f"{self.source_dir}/**/*.*", recursive=True)
         disease_dataframe = pd.read_csv(self.annotation_path)
         target_ids: Set[str] = set(disease_dataframe["ID"].astype(str).tolist())
+        all_files = glob(f"{self.source_dir}/**/*.*", recursive=True)
         valid_extensions = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
         image_mapping = {
-            os.path.splitext(os.path.basename(p))[0]: p
-            for p in all_files
-            if os.path.splitext(p)[1] in valid_extensions
+            os.path.splitext(os.path.basename(path))[0]: path
+            for path in all_files
+            if os.path.splitext(path)[1] in valid_extensions
         }
         task_pairs = [
             (image_mapping[image_id], os.path.join(self.target_dir, f"{image_id}.jpg"))
@@ -93,7 +79,7 @@ class DdrDatasetPreprocessor:
         print(f"Matched {len(task_pairs)} / {len(target_ids)} DDR images. Starting conversion...")
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             list(tqdm(executor.map(self.process_single_image, task_pairs), total=len(task_pairs)))
-        print(f"Completed! Total images in {self.target_dir}: {len(os.listdir(self.target_dir))}")
+        print(f"Completed! Total images ready in {self.target_dir}: {len(os.listdir(self.target_dir))}")
 
 
 if __name__ == "__main__":
