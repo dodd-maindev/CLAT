@@ -315,7 +315,22 @@ def interpolate_pos_embed(model, checkpoint_model) -> None:
 
 
 def load_timm_weights(model_name: str, model: torch.nn.Module):
-    checkpoint = timm.create_model(model_name, pretrained=True).state_dict()
+    """Loads weights from timm with automatic fallback to official PyTorch checkpoint."""
+    try:
+        checkpoint = timm.create_model(model_name, pretrained=True).state_dict()
+    except Exception:
+        fallback_urls = {
+            "cait_xs24_384": "https://dl.fbaipublicfiles.com/deit/XS24_384.pth",
+            "cait_xs24_384.fb_dist_in1k": "https://dl.fbaipublicfiles.com/deit/XS24_384.pth",
+            "cait_xxs24_384": "https://dl.fbaipublicfiles.com/deit/XXS24_384.pth",
+            "cait_xxs24_384.fb_dist_in1k": "https://dl.fbaipublicfiles.com/deit/XXS24_384.pth",
+            "cait_s24_224": "https://dl.fbaipublicfiles.com/deit/S24_224.pth",
+            "cait_s24_224.fb_dist_in1k": "https://dl.fbaipublicfiles.com/deit/S24_224.pth",
+        }
+        url = fallback_urls.get(model_name, "https://dl.fbaipublicfiles.com/deit/XS24_384.pth")
+        print(f"[CaiT Loader] HuggingFace hub bypass: loading directly from {url}...")
+        ckpt = torch.hub.load_state_dict_from_url(url, map_location="cpu", check_hash=False)
+        checkpoint = ckpt["model"] if "model" in ckpt else ckpt
     model_dict = model.state_dict()
     for k in ["head.weight", "head.bias"]:
         if k in checkpoint and checkpoint[k].shape != model_dict[k].shape:
