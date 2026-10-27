@@ -9,11 +9,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
 
-from clat.olap import (
-    DualPathDiseaseClassifier,
-    OrthogonalAdaptivePoolingConceptHead,
-    TrainMaskProvider,
-)
+from clat.olap import OrthogonalAdaptivePoolingConceptHead, TrainMaskProvider
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
 
 __all__ = [
@@ -501,27 +497,11 @@ class CaiTConcept(cait_models):
             n_outputs=self.embed_dim,
             num_heads=8,
         )
-        self.disease_classifier = DualPathDiseaseClassifier(
-            embed_dim=self.embed_dim,
-            num_classes=self.num_classes,
-            num_concepts=self.num_concepts,
-        )
-        self.use_dual_path_classifier = True
 
         trunc_normal_(self.pos_embed_concept_cls, std=0.02)
         trunc_normal_(self.concept_cls_token, std=0.02)
         trunc_normal_(self.pos_embed_pat, std=0.02)
         trunc_normal_(self.class_tokens, std=0.02)
-
-    def _load_from_state_dict(
-        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
-    ):
-        """Detects whether disease classifier weights exist in loaded checkpoint."""
-        has_classifier = any(k.startswith(prefix + "disease_classifier.") for k in state_dict.keys())
-        self.use_dual_path_classifier = has_classifier
-        super()._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
-        )
 
     def interpolate_pos_encoding(self, x, w, h):
         npatch = x.shape[1] - self.num_concepts
@@ -718,10 +698,7 @@ class CaiTConcept(cait_models):
         out_value, cross_attn_maps = self.cross_attention(
             self.class_tokens.repeat(n, 1, 1), concept_logits_i
         )
-        if getattr(self, "use_dual_path_classifier", True) and hasattr(self, "disease_classifier"):
-            class_logits = self.disease_classifier(out_value, patch_tokens, concept_logits)
-        else:
-            class_logits = out_value.mean(dim=-1)
+        class_logits = out_value.mean(dim=-1)
 
         if return_attn:
             feature_map = concept_patch.detach().clone()  # B * num_lesions * 14 * 14
