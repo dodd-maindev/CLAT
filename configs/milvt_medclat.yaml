@@ -1,0 +1,65 @@
+seed_everything: 42
+
+model:
+  class_path: clat.model.CLAT
+  init_args:
+    arch_name: MIL_VT_Concept
+    pretrained: true
+    disease_loss_weight: 1.0
+    lesion_loss_weight: 0.6
+    KG_loss_weight: 0.4
+    with_EK: true
+    training_int_prob: null
+    training_int_milestone: 999
+    use_olap: true
+    olap_initial_power: 3.0
+    olap_ortho_weight: 0.02
+    olap_spatial_weight: 0.0
+    use_ordinal_loss: true
+    qwk_loss_weight: 0.35
+    disease_class_weights: [2.0, 1.8, 0.9, 1.0, 1.6]
+    use_tta: true
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 3e-5
+    weight_decay: 2e-3
+
+lr_scheduler:
+  class_path: torch.optim.lr_scheduler.CosineAnnealingLR
+  init_args:
+    T_max: 20
+    eta_min: 1e-6
+
+trainer:
+  devices: [0,]
+  max_epochs: 20
+  gradient_clip_val: 1.0
+  log_every_n_steps: 1
+  logger:
+    class_path: lightning.pytorch.loggers.TensorBoardLogger
+    init_args:
+      save_dir: log
+      name: milvt_medclat
+      version: 
+      log_graph: false
+      default_hp_metric: false
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: val/priority_score
+        mode: max
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: clat.callbacks.MetricsCaculator
+      init_args:
+        verbose: true
+    - class_path: clat.olap.ConceptTransparencyMonitor
+      init_args:
+        verbose: true
+    - class_path: clat.olap.LayerDataflowTracer
+      init_args:
+        trace_every_n_epochs: 1
+    - class_path: clat.callbacks.GenHeatmap

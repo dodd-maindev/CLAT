@@ -9,12 +9,18 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
 
+from clat.medclat import (
+    AnatomicalAwareDiseaseClassifier,
+    HighFrequencyDetailExtractor,
+    LesionDetailInjector,
+)
 from clat.olap import (
     DualPathDiseaseClassifier,
     OrthogonalAdaptivePoolingConceptHead,
     TrainMaskProvider,
 )
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
+
 
 __all__ = [
     "cait_xs24_384_concept",
@@ -501,10 +507,18 @@ class CaiTConcept(cait_models):
             n_outputs=self.embed_dim,
             num_heads=8,
         )
-        self.disease_classifier = DualPathDiseaseClassifier(
+        self.disease_classifier = AnatomicalAwareDiseaseClassifier(
             embed_dim=self.embed_dim,
             num_classes=self.num_classes,
             num_concepts=self.num_concepts,
+        )
+        self.freq_extractor = HighFrequencyDetailExtractor(
+            in_channels=3,
+            embed_dim=self.embed_dim,
+        )
+        self.detail_injector = LesionDetailInjector(
+            embed_dim=self.embed_dim,
+            num_lesions=self.num_concepts,
         )
         self.use_dual_path_classifier = True
 
@@ -551,6 +565,7 @@ class CaiTConcept(cait_models):
 
     def forward_features(self, x):
         B, nc, w, h = x.size()  # B * 3 * 224 * 224
+        high_freq_map = self.freq_extractor(x) if hasattr(self, "freq_extractor") else None
         x = self.patch_embed(x)  # B * 196 * 384
         if not self.training:
             pos_embed_pat = self.interpolate_pos_encoding(x, w, h)
@@ -577,8 +592,12 @@ class CaiTConcept(cait_models):
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.norm(x)
 
+        out_concepts = x[:, 0 : self.num_concepts]
+        if high_freq_map is not None and hasattr(self, "detail_injector"):
+            out_concepts = self.detail_injector(out_concepts, high_freq_map)
+
         return (
-            x[:, 0 : self.num_concepts],
+            out_concepts,
             x[:, self.num_concepts :],
             attn_weights_concepts,
             attn_weights_patches,

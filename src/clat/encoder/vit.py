@@ -13,6 +13,11 @@ import torch.nn.functional as F
 from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
 
+from clat.medclat import (
+    AnatomicalAwareDiseaseClassifier,
+    HighFrequencyDetailExtractor,
+    LesionDetailInjector,
+)
 from clat.olap import (
     DualPathDiseaseClassifier,
     OrthogonalAdaptivePoolingConceptHead,
@@ -26,6 +31,7 @@ __all__ = [
     "vit_base_concept",
     "ViTConcept",
 ]
+
 
 
 def MIL_VT_Concept(pretrained: bool, **kwargs) -> "ViTConcept":
@@ -195,9 +201,18 @@ class ViTConcept(vit.VisionTransformer):
             n_outputs=self.embed_dim,
             num_heads=8,
         )
-        self.disease_classifier = DualPathDiseaseClassifier(
+        self.disease_classifier = AnatomicalAwareDiseaseClassifier(
             embed_dim=self.embed_dim,
             num_classes=self.num_classes,
+            num_concepts=self.num_lesions,
+        )
+        self.freq_extractor = HighFrequencyDetailExtractor(
+            in_channels=3,
+            embed_dim=self.embed_dim,
+        )
+        self.detail_injector = LesionDetailInjector(
+            embed_dim=self.embed_dim,
+            num_lesions=self.num_lesions,
         )
 
         trunc_normal_(self.pos_embed_lesion, std=0.02)
@@ -244,6 +259,7 @@ class ViTConcept(vit.VisionTransformer):
 
     def forward_features(self, x):
         B, nc, w, h = x.size()  # B * 3 * 224 * 224
+        high_freq_map = self.freq_extractor(x) if hasattr(self, "freq_extractor") else None
         x = self.patch_embed(x)  # B * 196 * 384
         if not self.training:
             pos_embed_pat = self.interpolate_pos_encoding(x, w, h)
@@ -263,7 +279,11 @@ class ViTConcept(vit.VisionTransformer):
             x, weights_i = blk(x)
             attn_weights.append(weights_i)
 
-        return x[:, 0 : self.num_lesions], x[:, self.num_lesions :], attn_weights
+        out_lesion_tokens = x[:, 0 : self.num_lesions]
+        if high_freq_map is not None and hasattr(self, "detail_injector"):
+            out_lesion_tokens = self.detail_injector(out_lesion_tokens, high_freq_map)
+
+        return out_lesion_tokens, x[:, self.num_lesions :], attn_weights
 
     def _compute_spatial_loss(
         self,

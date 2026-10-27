@@ -7,8 +7,10 @@ from lightning import LightningModule
 from clat.data import DataItem
 from clat.encoder import load_encoder
 from clat.losses import OrdinalDiseaseLoss
+from clat.medclat import MedicalLesionKnowledgeGraph
 from clat.olap import TestTimeAugmentationEvaluator
 from clat.utils import CLATOutput
+
 
 
 class KnowledgeGuideLoss(nn.Module):
@@ -89,6 +91,10 @@ class CLAT(LightningModule):
         if not with_EK:
             knowledge_embeds_path.replace("with_EK", "without_EK")
         knowledge_embeds = torch.load(knowledge_embeds_path)
+        self.knowledge_graph = MedicalLesionKnowledgeGraph(
+            embed_dim=knowledge_embeds.shape[1],
+            num_lesions=self.num_lesions,
+        )
         self.token2concept = nn.Linear(self.model.embed_dim, knowledge_embeds.shape[1])
         self.patch_size = self.model.patch_embed.patch_size
 
@@ -162,10 +168,11 @@ class CLAT(LightningModule):
             if self.lesion_loss_weight > 0
             else 0
         )
+        concept_features = self.token2concept(output.lesion_tokens)
+        if hasattr(self, "knowledge_graph"):
+            concept_features = self.knowledge_graph(concept_features)
         KG_loss = (
-            self.loss_knowledge_guide(
-                self.token2concept(output.lesion_tokens), lesion_lbls
-            )
+            self.loss_knowledge_guide(concept_features, lesion_lbls)
             if self.KG_loss_weight > 0
             else 0
         )
