@@ -18,7 +18,7 @@ class OrdinalDiseaseLoss(nn.Module):
         focal_gamma: float = 0.5,
         qwk_weight: float = 0.2,
         ordinal_weight: float = 1.0,
-        gaussian_sigma: float = 0.55,
+        gaussian_sigma: float = 0.65,
     ) -> None:
         """Initializes focal ordinal disease loss with class weights and expected grade loss."""
         super().__init__()
