@@ -315,10 +315,10 @@ def interpolate_pos_embed(model, checkpoint_model) -> None:
 
 
 CAIT_URL_REGISTRY = {
-    "cait_xs24_384": "https://dl.fbaipublicfiles.com/deit/cait_xs24_384.pth",
-    "cait_xxs24_384": "https://dl.fbaipublicfiles.com/deit/cait_xxs24_384.pth",
-    "cait_xxs24_224": "https://dl.fbaipublicfiles.com/deit/cait_xxs24_224.pth",
-    "cait_s24_224": "https://dl.fbaipublicfiles.com/deit/cait_s24_224.pth",
+    "cait_xs24_384": "https://huggingface.co/timm/cait_xs24_384.fb_dist_in1k/resolve/main/pytorch_model.bin",
+    "cait_xxs24_384": "https://huggingface.co/timm/cait_xxs24_384.fb_dist_in1k/resolve/main/pytorch_model.bin",
+    "cait_xxs24_224": "https://huggingface.co/timm/cait_xxs24_224.fb_dist_in1k/resolve/main/pytorch_model.bin",
+    "cait_s24_224": "https://huggingface.co/timm/cait_s24_224.fb_dist_in1k/resolve/main/pytorch_model.bin",
 }
 
 
