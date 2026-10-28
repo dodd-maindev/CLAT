@@ -75,7 +75,7 @@ def main() -> None:
 
     runner = CaiTCrossValidationRunner(
         config_path="configs/cait_olap.yaml",
-        data_config_path="configs/data/DDR.yaml",
+        data_config_path="configs/data/FGADDR.yaml",
     )
 
     for fold in range(start_fold, end_fold + 1):
