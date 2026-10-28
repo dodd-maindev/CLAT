@@ -502,6 +502,12 @@ class CaiTConcept(cait_models):
             n_outputs=self.embed_dim,
             num_heads=8,
         )
+        self.disease_classifier = DualPathDiseaseClassifier(
+            embed_dim=self.embed_dim,
+            num_classes=self.num_classes,
+            num_concepts=self.num_concepts,
+        )
+        self.use_dual_path_classifier = True
 
         trunc_normal_(self.pos_embed_concept_cls, std=0.02)
         trunc_normal_(self.concept_cls_token, std=0.02)
@@ -713,7 +719,10 @@ class CaiTConcept(cait_models):
         out_value, cross_attn_maps = self.cross_attention(
             self.class_tokens.repeat(n, 1, 1), concept_logits_i
         )
-        class_logits = out_value.mean(dim=-1)
+        if getattr(self, "use_dual_path_classifier", True) and hasattr(self, "disease_classifier"):
+            class_logits = self.disease_classifier(out_value, patch_tokens, concept_logits)
+        else:
+            class_logits = out_value.mean(dim=-1)
 
         if return_attn:
             feature_map = concept_patch.detach().clone()  # B * num_lesions * 14 * 14
