@@ -314,12 +314,32 @@ def interpolate_pos_embed(model, checkpoint_model) -> None:
             checkpoint_model["pos_embed"] = new_pos_embed
 
 
+CAIT_URL_REGISTRY = {
+    "cait_xs24_384": "https://dl.fbaipublicfiles.com/deit/cait_xs24_384.pth",
+    "cait_xxs24_384": "https://dl.fbaipublicfiles.com/deit/cait_xxs24_384.pth",
+    "cait_xxs24_224": "https://dl.fbaipublicfiles.com/deit/cait_xxs24_224.pth",
+    "cait_s24_224": "https://dl.fbaipublicfiles.com/deit/cait_s24_224.pth",
+}
+
+
 def load_timm_weights(model_name: str, model: torch.nn.Module):
-    checkpoint = timm.create_model(model_name, pretrained=True).state_dict()
+    """Load pretrained weights from timm or official direct checkpoint URL."""
+    checkpoint = None
+    try:
+        checkpoint = timm.create_model(model_name, pretrained=True).state_dict()
+    except Exception as error:
+        base_name = model_name.split(".")[0]
+        if base_name in CAIT_URL_REGISTRY:
+            url = CAIT_URL_REGISTRY[base_name]
+            print(f"Loading weights directly from official URL: {url}...")
+            loaded = torch.hub.load_state_dict_from_url(url, map_location="cpu", progress=True)
+            checkpoint = loaded.get("model", loaded)
+        else:
+            raise error
+
     model_dict = model.state_dict()
     for k in ["head.weight", "head.bias"]:
         if k in checkpoint and checkpoint[k].shape != model_dict[k].shape:
-            # print(f"Removing key {k} from pretrained checkpoint")
             del checkpoint[k]
     pretrained_dict = {k: v for k, v in checkpoint.items() if k in model_dict}
     pretrained_dict = {
@@ -327,7 +347,7 @@ def load_timm_weights(model_name: str, model: torch.nn.Module):
     }
     model_dict.update(pretrained_dict)
     model.load_state_dict(model_dict)
-    print(f"Loaded pretrained weights from {model_name}")
+    print(f"Loaded pretrained weights for {model_name}")
     return model
 
 
