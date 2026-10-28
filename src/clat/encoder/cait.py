@@ -9,6 +9,11 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.vision_transformer import Mlp, PatchEmbed
 
+from clat.medclat import (
+    AnatomicalAwareDiseaseClassifier,
+    HighFrequencyDetailExtractor,
+    LesionDetailInjector,
+)
 from clat.olap import OrthogonalAdaptivePoolingConceptHead
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
 
@@ -492,6 +497,19 @@ class CaiTConcept(cait_models):
             n_outputs=self.embed_dim,
             num_heads=8,
         )
+        self.freq_extractor = HighFrequencyDetailExtractor(
+            in_channels=3,
+            embed_dim=self.embed_dim,
+        )
+        self.detail_injector = LesionDetailInjector(
+            embed_dim=self.embed_dim,
+            num_lesions=self.num_concepts,
+        )
+        self.disease_classifier = AnatomicalAwareDiseaseClassifier(
+            embed_dim=self.embed_dim,
+            num_classes=self.num_classes,
+            num_concepts=self.num_concepts,
+        )
 
         trunc_normal_(self.pos_embed_concept_cls, std=0.02)
         trunc_normal_(self.concept_cls_token, std=0.02)
@@ -526,6 +544,7 @@ class CaiTConcept(cait_models):
 
     def forward_features(self, x):
         B, nc, w, h = x.size()  # B * 3 * 224 * 224
+        high_freq_map = self.freq_extractor(x) if hasattr(self, "freq_extractor") else None
         x = self.patch_embed(x)  # B * 196 * 384
         if not self.training:
             pos_embed_pat = self.interpolate_pos_encoding(x, w, h)
@@ -552,8 +571,12 @@ class CaiTConcept(cait_models):
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.norm(x)
 
+        concept_tokens = x[:, 0 : self.num_concepts]
+        if high_freq_map is not None and hasattr(self, "detail_injector"):
+            concept_tokens = self.detail_injector(concept_tokens, high_freq_map)
+
         return (
-            x[:, 0 : self.num_concepts],
+            concept_tokens,
             x[:, self.num_concepts :],
             attn_weights_concepts,
             attn_weights_patches,
@@ -639,7 +662,10 @@ class CaiTConcept(cait_models):
         out_value, cross_attn_maps = self.cross_attention(
             self.class_tokens.repeat(n, 1, 1), concept_logits_i
         )
-        class_logits = out_value.mean(dim=-1)
+        if hasattr(self, "disease_classifier") and self.disease_classifier is not None:
+            class_logits = self.disease_classifier(out_value, patch_tokens, concept_logits)
+        else:
+            class_logits = out_value.mean(dim=-1)
 
         if return_attn:
             feature_map = concept_patch.detach().clone()  # B * num_lesions * 14 * 14
@@ -706,3 +732,4 @@ class CaiTConcept(cait_models):
     def freeze_lesion_token(self):
         """freeze lesion tokens only"""
         self.concept_cls_token.requires_grad = False
+

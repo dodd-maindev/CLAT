@@ -6,14 +6,17 @@ from .gem_pooling import GeneralizedMeanPooling2d
 from .layer_tracer import LayerDataflowTracer
 from .monitor import ConceptTransparencyMonitor
 from .olap_head import OrthogonalAdaptivePoolingConceptHead
+from .dual_path_disease_classifier import DualPathDiseaseClassifier
 from .orthogonal_loss import OrthogonalSubspaceLoss
 
 __all__ = [
     "GeneralizedMeanPooling2d",
     "ConvexDynamicGate",
     "CalibratedConceptProjector",
+    "DualPathDiseaseClassifier",
     "OrthogonalSubspaceLoss",
     "OrthogonalAdaptivePoolingConceptHead",
     "ConceptTransparencyMonitor",
     "LayerDataflowTracer",
 ]
+
