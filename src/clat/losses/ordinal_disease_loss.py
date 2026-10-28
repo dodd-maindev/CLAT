@@ -52,10 +52,15 @@ class OrdinalDiseaseLoss(nn.Module):
 
         focal_modulators = torch.pow(1.0 - target_probabilities.clamp(0.0, 1.0), self.focal_gamma)
 
-        # Gaussian Ordinal smoothing aligned with Quadratic Weighted Kappa topology
-        distances_sq = (self.class_ranks.unsqueeze(0) - target_ranks.unsqueeze(1)) ** 2
-        gaussian_targets = torch.exp(-distances_sq / (2.0 * (self.gaussian_sigma ** 2)))
-        smoothed_targets = gaussian_targets / gaussian_targets.sum(dim=-1, keepdim=True)
+        # Gaussian smoothing if sigma > 0, otherwise standard uniform label smoothing
+        if self.gaussian_sigma > 0.0:
+            distances_sq = (self.class_ranks.unsqueeze(0) - target_ranks.unsqueeze(1)) ** 2
+            gaussian_targets = torch.exp(-distances_sq / (2.0 * (self.gaussian_sigma ** 2)))
+            smoothed_targets = gaussian_targets / gaussian_targets.sum(dim=-1, keepdim=True)
+        else:
+            smoothed_targets = targets_one_hot * (1.0 - self.label_smoothing) + (
+                self.label_smoothing / self.num_classes
+            )
         cross_entropy_per_sample = -(smoothed_targets * log_probabilities).sum(dim=-1)
 
         if self.class_weights is not None and targets.dim() == 1:
@@ -64,10 +69,12 @@ class OrdinalDiseaseLoss(nn.Module):
         else:
             focal_loss = (focal_modulators * cross_entropy_per_sample).mean()
 
-        expected_grade = (probabilities * self.class_ranks).sum(dim=-1)
-        ord_loss = F.smooth_l1_loss(expected_grade, target_ranks, beta=0.5)
+        total_loss = focal_loss
+        if self.ordinal_weight > 0.0:
+            expected_grade = (probabilities * self.class_ranks).sum(dim=-1)
+            ord_loss = F.smooth_l1_loss(expected_grade, target_ranks, beta=0.5)
+            total_loss = total_loss + self.ordinal_weight * ord_loss
 
-        total_loss = focal_loss + self.ordinal_weight * ord_loss
         if self.qwk_weight > 0.0:
             qwk_loss = self.soft_qwk(logits, targets)
             total_loss = total_loss + self.qwk_weight * qwk_loss

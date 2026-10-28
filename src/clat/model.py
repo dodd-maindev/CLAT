@@ -103,11 +103,15 @@ class CLAT(LightningModule):
         self.KG_loss_weight = KG_loss_weight
 
         if use_ordinal_loss and self.num_disease > 2:
+            is_cait = str(arch_name).startswith("cait")
             self.loss_disease = OrdinalDiseaseLoss(
                 num_classes=self.num_disease,
                 class_weights=disease_class_weights,
                 label_smoothing=0.05,
+                focal_gamma=1.5 if is_cait else 0.5,
                 qwk_weight=qwk_loss_weight,
+                ordinal_weight=0.0 if is_cait else 1.0,
+                gaussian_sigma=0.0 if is_cait else 0.65,
             )
         else:
             self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
