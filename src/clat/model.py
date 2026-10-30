@@ -6,6 +6,7 @@ from lightning import LightningModule
 
 from clat.data import DataItem
 from clat.encoder import load_encoder
+from clat.losses import ClinicalConsistencyLoss, CompositeDiseaseLoss
 from clat.medclat import MedicalLesionKnowledgeGraph
 from clat.utils import CLATOutput
 
@@ -50,6 +51,10 @@ class CLAT(LightningModule):
         use_olap: bool = False,
         olap_initial_power: float = 3.0,
         olap_ortho_weight: float = 0.05,
+        use_ordinal_loss: bool = True,
+        ordinal_loss_weight: float = 0.5,
+        kappa_loss_weight: float = 0.3,
+        clinical_consistency_weight: float = 0.2,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -91,7 +96,17 @@ class CLAT(LightningModule):
         self.lesion_loss_weight = lesion_loss_weight
         self.KG_loss_weight = KG_loss_weight
 
-        self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
+        if use_ordinal_loss:
+            self.loss_disease = CompositeDiseaseLoss(
+                number_of_classes=self.num_disease,
+                label_smoothing=0.05,
+                ordinal_weight=ordinal_loss_weight,
+                kappa_weight=kappa_loss_weight,
+            )
+        else:
+            self.loss_disease = nn.CrossEntropyLoss(label_smoothing=0.05)
+        self.clinical_consistency_loss = ClinicalConsistencyLoss()
+        self.clinical_consistency_weight = clinical_consistency_weight
         self.loss_lesion = nn.MultiLabelSoftMarginLoss()
         self.loss_knowledge_guide = KnowledgeGuideLoss(knowledge_embeds)
 
@@ -142,11 +157,17 @@ class CLAT(LightningModule):
             else 0
         )
 
+        consistency_loss = (
+            self.clinical_consistency_loss(output.disease_logits, output.lesion_logits)
+            if self.clinical_consistency_weight > 0
+            else torch.tensor(0.0, device=output.disease_logits.device)
+        )
         ortho_loss = getattr(self.model, "current_ortho_loss", 0.0)
         loss = (
             self.disease_loss_weight * disease_loss
             + self.lesion_loss_weight * lesion_loss
             + self.KG_loss_weight * KG_loss
+            + self.clinical_consistency_weight * consistency_loss
             + ortho_loss
         )
 
@@ -158,6 +179,7 @@ class CLAT(LightningModule):
                 f"loss/{stage}_disease_loss": disease_loss,
                 f"loss/{stage}_lesion_loss": lesion_loss,
                 f"loss/{stage}_KG_loss": KG_loss,
+                f"loss/{stage}_consistency_loss": consistency_loss,
             },
             prog_bar=False,
             batch_size=bs,

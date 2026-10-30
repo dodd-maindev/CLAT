@@ -3,10 +3,11 @@
 from typing import Optional
 import torch
 import torch.nn as nn
+from clat.medclat.clinical_rule_concept_reasoner import ClinicalRuleConceptReasoner
 
 
 class DualPathDiseaseClassifier(nn.Module):
-    """Fuses concept-level attention tokens, direct concept probabilities, and global retinal patch context."""
+    """Fuses concept-level attention tokens, ICDR-reasoned concepts, and global context."""
 
     def __init__(
         self,
@@ -16,7 +17,7 @@ class DualPathDiseaseClassifier(nn.Module):
         initial_global_weight: float = 0.1,
         initial_concept_weight: float = 0.1,
     ) -> None:
-        """Initializes projection heads and residual fusion parameters."""
+        """Initializes projection heads, ICDR concept reasoner, and residual fusion gates."""
         super().__init__()
         self.concept_projector = nn.Linear(embed_dim, 1)
         self.global_projector = nn.Sequential(
@@ -27,11 +28,9 @@ class DualPathDiseaseClassifier(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(embed_dim // 2, num_classes),
         )
-        self.direct_concept_head = nn.Sequential(
-            nn.Linear(num_concepts, 32),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(32, num_classes),
+        self.direct_concept_head = ClinicalRuleConceptReasoner(
+            number_of_concepts=num_concepts,
+            number_of_classes=num_classes,
         )
         self.global_gate = nn.Parameter(torch.tensor(initial_global_weight))
         self.concept_gate = nn.Parameter(torch.tensor(initial_concept_weight))

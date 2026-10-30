@@ -13,6 +13,7 @@ from clat.medclat import (
     AnatomicalAwareDiseaseClassifier,
     HighFrequencyDetailExtractor,
     LesionDetailInjector,
+    MultiScaleLesionRefiner,
 )
 from clat.olap import OrthogonalAdaptivePoolingConceptHead
 from clat.utils import CLATOutput, CrossAttention, load_timm_weights
@@ -510,6 +511,10 @@ class CaiTConcept(cait_models):
             num_classes=self.num_classes,
             num_concepts=self.num_concepts,
         )
+        self.multiscale_refiner = MultiScaleLesionRefiner(
+            embed_dim=self.embed_dim,
+            in_channels=3,
+        )
 
         trunc_normal_(self.pos_embed_concept_cls, std=0.02)
         trunc_normal_(self.concept_cls_token, std=0.02)
@@ -614,6 +619,8 @@ class CaiTConcept(cait_models):
             )  # B * 14 * 14 * 384
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])  # B * 384 * 14 * 14
         patch_tokens = patch_tokens.contiguous()
+        if hasattr(self, "multiscale_refiner") and self.multiscale_refiner is not None:
+            patch_tokens = self.multiscale_refiner(patch_tokens, x)
         if self.olap_head is not None:
             (
                 concept_logits,
