@@ -8,6 +8,7 @@ from lightning import Callback, LightningModule, Trainer
 
 from clat.data import DataItem
 from clat.model import CLAT
+from clat.olap import PriorityScoreCalculator
 from clat.utils import CLSandCPTMetrics, fit_rs2table, test_rs2table
 
 
@@ -15,6 +16,7 @@ class MetricsCaculator(Callback):
     def __init__(self, verbose: bool = True) -> None:
         super().__init__()
         self.verbose = verbose
+        self.priority_calculator = PriorityScoreCalculator()
 
     def on_fit_start(self, trainer: Trainer, pl_module: CLAT) -> None:
         self.best_metrics = None
@@ -91,10 +93,24 @@ class MetricsCaculator(Callback):
         self.val_metrics.reset()
         self.current_val_rs = val_rs
 
+        priority_score = self.priority_calculator.compute(val_rs).to(pl_module.device)
+        current_priority = float(priority_score.item())
+        best_priority = (
+            float(self.priority_calculator.compute(self.best_metrics).item())
+            if self.best_metrics is not None
+            else -1.0
+        )
+
+        if self.best_metrics is None or current_priority > best_priority:
+            self.best_metrics = dict(val_rs)
+            self.best_epoch = trainer.current_epoch
+
         table = fit_rs2table(
             trainer.current_epoch, train_rs, val_rs, self.best_metrics, self.best_epoch
         )
-        logging.info(f"\n{table}") if self.verbose else None
+        if self.verbose:
+            print(f"\n{table}")
+            logging.info(f"\n{table}")
 
         for name, value in train_rs.items():
             pl_module.log(
@@ -105,6 +121,15 @@ class MetricsCaculator(Callback):
                 on_epoch=True,
                 sync_dist=True,
             )
+        priority_score = self.priority_calculator.compute(val_rs).to(pl_module.device)
+        pl_module.log(
+            "val/priority_score",
+            priority_score,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
         for name, value in val_rs.items():
             pl_module.log(
                 f"val/{name}",
@@ -124,13 +149,21 @@ class MetricsCaculator(Callback):
         if trainer.log_dir is not None:
             import json, os
             os.makedirs(trainer.log_dir, exist_ok=True)
-            output_file = os.path.join(trainer.log_dir, "test_metrics.json")
+            test_priority = self.priority_calculator.compute(metrics_dict)
             converted = {
                 k: float(v.item()) if hasattr(v, "item") else float(v)
                 for k, v in metrics_dict.items()
             }
+            converted["priority_score"] = float(test_priority.item())
+            output_file = os.path.join(trainer.log_dir, "test_metrics.json")
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(converted, f, indent=2)
+            parent_dir = os.path.dirname(trainer.log_dir)
+            if parent_dir and "log" in parent_dir:
+                parent_file = os.path.join(parent_dir, "test_metrics.json")
+                with open(parent_file, "w", encoding="utf-8") as f:
+                    json.dump(converted, f, indent=2)
+            print(f"\n✅ ĐÃ GHI THÀNH CÔNG FILE KẾT QUẢ: {output_file}")
 
     def on_save_checkpoint(
         self,
@@ -161,8 +194,10 @@ class GenHeatmap(Callback):
         dataloader_idx: int = 0,
     ) -> None:
         img_size = pl_module.img_size
-        logger = pl_module.logger.experiment.add_image  # type: ignore
-        cams = outputs["cams"]
+        logger = getattr(getattr(pl_module.logger, "experiment", None), "add_image", None)
+        cams = outputs.get("cams", None) if isinstance(outputs, dict) else getattr(outputs, "cams", None)
+        if cams is None or logger is None:
+            return
         disease_logits = outputs["disease_logits"]
         disease_lbls = batch.disease_lbls
         img_ids = batch.id
@@ -190,6 +225,7 @@ class GenHeatmap(Callback):
                 lesion_cls_attention = (
                     lesion_cls_attention - lesion_cls_attention.min()
                 ) / (lesion_cls_attention.max() - lesion_cls_attention.min() + 1e-8)
+                lesion_cls_attention = lesion_cls_attention * float(lesion_cls_score)
 
                 lesion_cls_attention = lesion_cls_attention.detach().cpu().numpy()
 

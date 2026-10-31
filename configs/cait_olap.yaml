@@ -43,13 +43,13 @@ trainer:
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
-        monitor: val/kappa
+        monitor: val/priority_score
         mode: max
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
-        monitor: val/kappa
+        monitor: val/priority_score
         mode: max
-        patience: 20
+        patience: 25
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
@@ -63,3 +63,4 @@ trainer:
       init_args:
         trace_every_n_epochs: 1
     - class_path: clat.callbacks.GenHeatmap
+

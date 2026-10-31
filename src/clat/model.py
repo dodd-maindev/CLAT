@@ -7,6 +7,7 @@ from lightning import LightningModule
 from clat.data import DataItem
 from clat.encoder import load_encoder
 from clat.medclat import MedicalLesionKnowledgeGraph
+from clat.olap import TestTimeAugmentationEvaluator
 from clat.utils import CLATOutput
 
 
@@ -62,6 +63,8 @@ class CLAT(LightningModule):
         self.training_int_milestone = training_int_milestone
         self.eval_int = eval_int
         self.use_olap = use_olap
+        self.tta_evaluator = TestTimeAugmentationEvaluator()
+        self.use_test_tta = True
 
         self.model = load_encoder(
             arch_name,
@@ -110,7 +113,11 @@ class CLAT(LightningModule):
 
         output: CLATOutput
         # forward
-        if (
+        if stage == "test" and getattr(self, "use_test_tta", False):
+            output = self.tta_evaluator.evaluate(
+                self, images, lesion_labels=lesion_lbls, return_attn=True
+            )
+        elif (
             self.training
             and self.training_int_prob
             and self.training_int_milestone is not None
@@ -288,4 +295,5 @@ class CLAT(LightningModule):
 
     def test_step(self, batch):
         return self.shared_step(batch, stage="test")
+
 

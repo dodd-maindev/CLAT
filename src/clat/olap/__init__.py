@@ -7,6 +7,8 @@ from .layer_tracer import LayerDataflowTracer
 from .monitor import ConceptTransparencyMonitor
 from .olap_head import OrthogonalAdaptivePoolingConceptHead
 from .dual_path_disease_classifier import DualPathDiseaseClassifier
+from .priority_score import PriorityScoreCalculator
+from .tta_evaluator import TestTimeAugmentationEvaluator
 from .orthogonal_loss import OrthogonalSubspaceLoss
 
 __all__ = [
@@ -14,9 +16,12 @@ __all__ = [
     "ConvexDynamicGate",
     "CalibratedConceptProjector",
     "DualPathDiseaseClassifier",
+    "PriorityScoreCalculator",
+    "TestTimeAugmentationEvaluator",
     "OrthogonalSubspaceLoss",
     "OrthogonalAdaptivePoolingConceptHead",
     "ConceptTransparencyMonitor",
     "LayerDataflowTracer",
 ]
+
 
