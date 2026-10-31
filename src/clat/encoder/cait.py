@@ -614,6 +614,7 @@ class CaiTConcept(cait_models):
             )  # B * 14 * 14 * 384
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])  # B * 384 * 14 * 14
         patch_tokens = patch_tokens.contiguous()
+        concept_patch = self.head(patch_tokens)
         if self.olap_head is not None:
             (
                 concept_logits,
@@ -621,7 +622,7 @@ class CaiTConcept(cait_models):
                 global_concept_logits,
                 ortho_loss,
                 concept_patch,
-            ) = self.olap_head(patch_tokens, concept_tokens)
+            ) = self.olap_head(concept_patch, concept_tokens)
             self.current_ortho_loss = ortho_loss
         else:
             concept_patch = self.head(patch_tokens)  # B * num_lesions * 14 * 14
@@ -732,4 +733,5 @@ class CaiTConcept(cait_models):
     def freeze_lesion_token(self):
         """freeze lesion tokens only"""
         self.concept_cls_token.requires_grad = False
+
 
