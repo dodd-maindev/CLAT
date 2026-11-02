@@ -61,6 +61,7 @@ class CLAT(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.num_disease = len(disease_names)
+        self.num_classes = len(disease_names)
         self.num_lesions = len(lesion_names)
         self.disease_names = disease_names
         self.lesion_names = lesion_names
@@ -82,7 +83,7 @@ class CLAT(LightningModule):
         self.model = load_encoder(
             arch_name,
             pretrained=pretrained,
-            num_classes=self.num_classes,
+            num_classes=self.num_disease,
             num_lesions=self.num_lesions,
             img_size=img_size,
             use_olap=use_olap,
