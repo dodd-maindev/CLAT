@@ -51,6 +51,12 @@ class CLAT(LightningModule):
         use_olap: bool = False,
         olap_initial_power: float = 3.0,
         olap_ortho_weight: float = 0.05,
+        use_pkg: bool = True,
+        use_detail_injector: bool = True,
+        use_landmark_classifier: bool = True,
+        olap_pooling_type: str = "lse",
+        olap_use_layernorm: bool = True,
+        olap_use_dynamic_gate: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -66,15 +72,27 @@ class CLAT(LightningModule):
         self.tta_evaluator = TestTimeAugmentationEvaluator()
         self.use_test_tta = True
 
+        self.use_pkg = use_pkg
+        self.use_detail_injector = use_detail_injector
+        self.use_landmark_classifier = use_landmark_classifier
+        self.olap_pooling_type = olap_pooling_type
+        self.olap_use_layernorm = olap_use_layernorm
+        self.olap_use_dynamic_gate = olap_use_dynamic_gate
+
         self.model = load_encoder(
             arch_name,
             pretrained=pretrained,
-            num_classes=self.num_disease,
+            num_classes=self.num_classes,
             num_lesions=self.num_lesions,
             img_size=img_size,
             use_olap=use_olap,
             olap_initial_power=olap_initial_power,
             olap_ortho_weight=olap_ortho_weight,
+            olap_pooling_type=olap_pooling_type,
+            olap_use_layernorm=olap_use_layernorm,
+            olap_use_dynamic_gate=olap_use_dynamic_gate,
+            use_detail_injector=use_detail_injector,
+            use_landmark_classifier=use_landmark_classifier,
         )
         if "No DR" in disease_names:
             knowledge_embeds_path = "data/FLAIR_DR_with_EK.pt"
@@ -83,10 +101,14 @@ class CLAT(LightningModule):
         if not with_EK:
             knowledge_embeds_path.replace("with_EK", "without_EK")
         knowledge_embeds = torch.load(knowledge_embeds_path)
-        self.knowledge_graph = MedicalLesionKnowledgeGraph(
-            embed_dim=knowledge_embeds.shape[1],
-            num_lesions=self.num_lesions,
-        )
+        if self.use_pkg:
+            self.knowledge_graph = MedicalLesionKnowledgeGraph(
+                embed_dim=knowledge_embeds.shape[1],
+                num_lesions=self.num_lesions,
+            )
+        else:
+            self.knowledge_graph = None
+            self.KG_loss_weight = 0.0
         self.token2concept = nn.Linear(self.model.embed_dim, knowledge_embeds.shape[1])
         self.patch_size = self.model.patch_embed.patch_size
 
@@ -141,11 +163,11 @@ class CLAT(LightningModule):
             else 0
         )
         concept_features = self.token2concept(output.lesion_tokens)
-        if hasattr(self, "knowledge_graph") and self.knowledge_graph is not None:
+        if self.use_pkg and hasattr(self, "knowledge_graph") and self.knowledge_graph is not None:
             concept_features = self.knowledge_graph(concept_features)
         KG_loss = (
             self.loss_knowledge_guide(concept_features, lesion_lbls)
-            if self.KG_loss_weight > 0
+            if (self.KG_loss_weight > 0 and self.use_pkg)
             else 0
         )
 

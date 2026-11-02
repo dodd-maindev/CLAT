@@ -155,6 +155,17 @@ class MetricsCaculator(Callback):
                 for k, v in metrics_dict.items()
             }
             converted["priority_score"] = float(test_priority.item())
+            tokens = getattr(getattr(pl_module, "model", None), "lesion_tokens", None)
+            if tokens is not None:
+                import numpy as np
+                normed = torch.nn.functional.normalize(tokens.squeeze(0), p=2, dim=-1)
+                cosine_matrix = torch.mm(normed, normed.t()).detach().cpu().numpy()
+                np.fill_diagonal(cosine_matrix, 0.0)
+                converted["mean_concept_cosine"] = float(np.mean(np.abs(cosine_matrix)))
+                converted["max_concept_cosine"] = float(np.max(np.abs(cosine_matrix)))
+                gram = torch.mm(normed, normed.t())
+                identity = torch.eye(tokens.shape[1], device=tokens.device)
+                converted["ortho_error"] = float((gram - identity).pow(2).sum().item())
             output_file = os.path.join(trainer.log_dir, "test_metrics.json")
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(converted, f, indent=2)

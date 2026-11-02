@@ -13,6 +13,11 @@ import torch.nn.functional as F
 from timm.models import vision_transformer as vit
 from timm.models.layers import trunc_normal_
 
+from clat.medclat import (
+    AnatomicalAwareDiseaseClassifier,
+    HighFrequencyDetailExtractor,
+    LesionDetailInjector,
+)
 from clat.olap import OrthogonalAdaptivePoolingConceptHead
 from clat.utils import CLATOutput, CrossAttention, load_milvt_ckpt, load_timm_weights
 
@@ -145,25 +150,58 @@ class ViTConcept(vit.VisionTransformer):
         self,
         num_lesions,
         img_size=224,
-        use_olap: bool = False,
-        olap_initial_power: float = 3.0,
-        olap_ortho_weight: float = 0.05,
         *args,
         **kwargs,
     ):
+        use_olap: bool = kwargs.pop("use_olap", False)
+        olap_initial_power: float = kwargs.pop("olap_initial_power", 3.0)
+        olap_ortho_weight: float = kwargs.pop("olap_ortho_weight", 0.05)
+        olap_pooling_type: str = kwargs.pop("olap_pooling_type", "lse")
+        olap_use_layernorm: bool = kwargs.pop("olap_use_layernorm", True)
+        olap_use_dynamic_gate: bool = kwargs.pop("olap_use_dynamic_gate", True)
+        use_detail_injector: bool = kwargs.pop("use_detail_injector", True)
+        use_landmark_classifier: bool = kwargs.pop("use_landmark_classifier", True)
         super().__init__(img_size=img_size, block_fn=Block, **kwargs)
         self.img_size = img_size
         self.num_lesions = num_lesions
         self.use_olap = use_olap
+        self.use_detail_injector = use_detail_injector
+        self.use_landmark_classifier = use_landmark_classifier
         if self.use_olap:
             self.olap_head = OrthogonalAdaptivePoolingConceptHead(
                 embed_dim=self.embed_dim,
                 num_concepts=self.num_lesions,
                 initial_power=olap_initial_power,
                 ortho_weight=olap_ortho_weight,
+                pooling_type=olap_pooling_type,
+                use_projector_layernorm=olap_use_layernorm,
+                use_dynamic_gate=olap_use_dynamic_gate,
             )
         else:
             self.olap_head = None
+        self.current_ortho_loss = torch.tensor(0.0)
+
+        if self.use_detail_injector:
+            self.freq_extractor = HighFrequencyDetailExtractor(
+                in_channels=3,
+                embed_dim=self.embed_dim,
+            )
+            self.detail_injector = LesionDetailInjector(
+                embed_dim=self.embed_dim,
+                num_lesions=self.num_lesions,
+            )
+        else:
+            self.freq_extractor = None
+            self.detail_injector = None
+
+        if self.use_landmark_classifier:
+            self.disease_classifier = AnatomicalAwareDiseaseClassifier(
+                embed_dim=self.embed_dim,
+                num_classes=self.num_classes,
+                num_concepts=self.num_lesions,
+            )
+        else:
+            self.disease_classifier = None
         self.head = nn.Conv2d(self.embed_dim, self.num_lesions, kernel_size=[1, 1])  # type: ignore
         self.head.apply(self._init_weights)
         self.capture_trace = False
@@ -220,6 +258,11 @@ class ViTConcept(vit.VisionTransformer):
 
     def forward_features(self, x):
         B, nc, w, h = x.size()  # B * 3 * 224 * 224
+        high_freq_map = (
+            self.freq_extractor(x)
+            if (self.use_detail_injector and self.freq_extractor is not None)
+            else None
+        )
         x = self.patch_embed(x)  # B * 196 * 384
         if not self.training:
             pos_embed_pat = self.interpolate_pos_encoding(x, w, h)
@@ -239,7 +282,15 @@ class ViTConcept(vit.VisionTransformer):
             x, weights_i = blk(x)
             attn_weights.append(weights_i)
 
-        return x[:, 0 : self.num_lesions], x[:, self.num_lesions :], attn_weights
+        out_lesion_tokens = x[:, 0 : self.num_lesions]
+        if (
+            high_freq_map is not None
+            and self.use_detail_injector
+            and self.detail_injector is not None
+        ):
+            out_lesion_tokens = self.detail_injector(out_lesion_tokens, high_freq_map)
+
+        return out_lesion_tokens, x[:, self.num_lesions :], attn_weights
 
     def forward(
         self,
@@ -264,6 +315,7 @@ class ViTConcept(vit.VisionTransformer):
             patch_tokens = torch.reshape(patch_tokens, [n, int(p**0.5), int(p**0.5), c])
         patch_tokens = patch_tokens.permute([0, 3, 1, 2])
         patch_tokens = patch_tokens.contiguous()
+        local_lesion_tokens = self.head(patch_tokens)
         if self.olap_head is not None:
             (
                 lesion_logits,
@@ -271,10 +323,9 @@ class ViTConcept(vit.VisionTransformer):
                 global_lesion_logits,
                 ortho_loss,
                 local_lesion_tokens,
-            ) = self.olap_head(patch_tokens, lesion_tokens)
+            ) = self.olap_head(local_lesion_tokens, lesion_tokens)
             self.current_ortho_loss = ortho_loss
         else:
-            local_lesion_tokens = self.head(patch_tokens)
             local_lesion_token_pooled = F.adaptive_max_pool2d(local_lesion_tokens, (1, 1))
             local_lesion_logits = torch.flatten(local_lesion_token_pooled, 1)
             global_lesion_logits = lesion_tokens.mean(-1)
@@ -318,7 +369,12 @@ class ViTConcept(vit.VisionTransformer):
         out_value, cross_attn_maps = self.cross_attention(
             self.disease_tokens.repeat(n, 1, 1), lesion_tokens_i
         )
-        disease_logits = out_value.mean(dim=-1)
+        if self.use_landmark_classifier and self.disease_classifier is not None:
+            disease_logits = self.disease_classifier(
+                out_value, patch_tokens, lesion_logits
+            )
+        else:
+            disease_logits = out_value.mean(dim=-1)
 
         if getattr(self, "capture_trace", False):
             self.last_forward_trace = {
@@ -373,6 +429,15 @@ class ViTConcept(vit.VisionTransformer):
             param.requires_grad = True
         if hasattr(self, "olap_head") and self.olap_head is not None:
             for param in self.olap_head.parameters():
+                param.requires_grad = True
+        if hasattr(self, "freq_extractor") and self.freq_extractor is not None:
+            for param in self.freq_extractor.parameters():
+                param.requires_grad = True
+        if hasattr(self, "detail_injector") and self.detail_injector is not None:
+            for param in self.detail_injector.parameters():
+                param.requires_grad = True
+        if hasattr(self, "disease_classifier") and self.disease_classifier is not None:
+            for param in self.disease_classifier.parameters():
                 param.requires_grad = True
         for param in self.cross_attention.parameters():
             param.requires_grad = True

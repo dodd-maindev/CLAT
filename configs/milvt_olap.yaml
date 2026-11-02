@@ -14,6 +14,12 @@ model:
     use_olap: true
     olap_initial_power: 3.0
     olap_ortho_weight: 0.05
+    use_pkg: true
+    use_detail_injector: true
+    use_landmark_classifier: true
+    olap_pooling_type: lse
+    olap_use_layernorm: true
+    olap_use_dynamic_gate: true
 
 optimizer:
   class_path: torch.optim.AdamW

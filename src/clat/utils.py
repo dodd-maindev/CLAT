@@ -151,6 +151,11 @@ def configure_metrics(
                 if task == "multiclass"
                 else AUROC(task=task, num_labels=num_disease, average="macro")
             ),
+            "macro_f1": (
+                F1Score(task=task, num_classes=num_disease, average="macro")
+                if task == "multiclass"
+                else F1Score(task=task, num_labels=num_disease, average="macro")
+            ),
         }
     )
     if disease_avg != "micro":

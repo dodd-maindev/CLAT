@@ -7,16 +7,22 @@ import torch.nn as nn
 class CalibratedConceptProjector(nn.Module):
     """Calibrates and projects high-dimensional lesion tokens into logit scalars."""
 
-    def __init__(self, embed_dim: int, num_concepts: int) -> None:
+    def __init__(
+        self,
+        embed_dim: int,
+        num_concepts: int,
+        use_norm: bool = True,
+    ) -> None:
         """Initializes the calibrated concept projector.
 
         Args:
             embed_dim: Feature dimension of the token embeddings.
             num_concepts: Number of distinct concept classes.
+            use_norm: Whether to apply LayerNorm before projection.
         """
         super().__init__()
-        self.norm = nn.LayerNorm(embed_dim)
-        # Learnable projection vector per concept: shape (num_concepts, embed_dim)
+        self.use_norm = use_norm
+        self.norm = nn.LayerNorm(embed_dim) if use_norm else nn.Identity()
         self.projection_weights = nn.Parameter(
             torch.randn(num_concepts, embed_dim) * (1.0 / (embed_dim ** 0.5))
         )
@@ -32,6 +38,5 @@ class CalibratedConceptProjector(nn.Module):
             Global logits of shape (batch_size, num_concepts).
         """
         normed_tokens = self.norm(lesion_tokens)
-        # Pointwise dot-product per concept: (B, C, D) * (1, C, D) -> sum over D
         logits = (normed_tokens * self.projection_weights.unsqueeze(0)).sum(dim=-1)
         return logits + self.bias.unsqueeze(0)
