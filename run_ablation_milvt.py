@@ -1,10 +1,9 @@
-"""CLI runner for Table 6 and Table 7 ablation studies on MIL-VT backbone."""
+"""CLI runner for Table 6 and Table 7 ablation studies with real-time Drive sync."""
 
 import argparse
 import os
 import sys
 
-# Ensure src directory is in sys.path
 sys.path.insert(0, os.path.abspath("src"))
 
 from clat.ablation import (
@@ -14,6 +13,7 @@ from clat.ablation import (
     TABLE_7_METRICS,
     AblationExperimentRunner,
     AblationResultFormatter,
+    DriveSyncManager,
 )
 
 
@@ -29,35 +29,49 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def recompute_and_save_summary(
+    configs: dict, metrics: list, start_fold: int, end_fold: int, csv_path: str, runner: AblationExperimentRunner
+) -> list:
+    """Recomputes statistics across all completed folds and saves CSV locally & to Drive."""
+    summary_rows = []
+    headers = ["Variant"] + [m.upper() for m in metrics]
+    for v_name, _ in configs.items():
+        exp_name = f"milvt_ablation_t6_{v_name}" if "6" in csv_path else f"milvt_ablation_t7_{v_name}"
+        records = runner.collect_fold_metrics(exp_name, start_fold, end_fold)
+        if records:
+            stats = AblationResultFormatter.aggregate_statistics(records, metrics)
+            summary_rows.append([v_name] + [stats[m] for m in metrics])
+    if summary_rows:
+        AblationResultFormatter.save_csv(csv_path, headers, summary_rows)
+        runner.sync_manager.sync_summary_csv(csv_path)
+    return summary_rows
+
+
 def main() -> None:
-    """Executes requested ablation study variants and displays aggregated tables."""
+    """Executes requested ablation variants with real-time fold sync and resume."""
     args = parse_arguments()
     configs = TABLE_6_CONFIGS if args.table == 6 else TABLE_7_CONFIGS
     metrics = TABLE_6_METRICS if args.table == 6 else TABLE_7_METRICS
     variants = list(configs.keys()) if args.variant == "all" else [args.variant]
 
-    runner = AblationExperimentRunner(data_config=args.data)
-    summary_rows = []
-    headers = ["Variant"] + [m.upper() for m in metrics]
-
+    sync_mgr = DriveSyncManager()
+    runner = AblationExperimentRunner(data_config=args.data, sync_manager=sync_mgr)
+    csv_path = f"log/ablation_table_{args.table}_summary.csv"
     os.makedirs("log", exist_ok=True)
+
     for var in variants:
         cfg = configs[var]
         exp_name = f"milvt_ablation_t{args.table}_{var}"
         print(f"\n{'='*70}\n[STARTING] Table {args.table} Variant: {var} ({cfg})\n{'='*70}")
         for fold in range(args.start_fold, args.end_fold + 1):
             runner.execute_fold(cfg, exp_name, fold, dry_run=args.dry_run)
+            recompute_and_save_summary(configs, metrics, args.start_fold, args.end_fold, csv_path, runner)
 
-        records = runner.collect_fold_metrics(exp_name, args.start_fold, args.end_fold)
-        stats = AblationResultFormatter.aggregate_statistics(records, metrics)
-        summary_rows.append([var] + [stats[m] for m in metrics])
-
+    headers = ["Variant"] + [m.upper() for m in metrics]
+    summary_rows = recompute_and_save_summary(configs, metrics, args.start_fold, args.end_fold, csv_path, runner)
     rendered_md = AblationResultFormatter.render_markdown_table(headers, summary_rows)
     print(f"\n{'='*70}\n       FINAL ABLATION TABLE {args.table} RESULTS (Mean ± Std)\n{'='*70}")
     print(rendered_md)
-
-    csv_path = f"log/ablation_table_{args.table}_summary.csv"
-    AblationResultFormatter.save_csv(csv_path, headers, summary_rows)
     print(f"\n[Saved] Summary saved to {csv_path}\n{'='*70}\n")
 
 

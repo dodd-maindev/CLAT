@@ -1,4 +1,4 @@
-"""Ablation experiment execution and formatting package."""
+"""Ablation experiment execution, formatting, and real-time sync package."""
 
 from .config_registry import (
     TABLE_6_CONFIGS,
@@ -9,6 +9,7 @@ from .config_registry import (
 )
 from .formatter import AblationResultFormatter
 from .runner import AblationExperimentRunner
+from .sync import DriveSyncManager
 
 __all__ = [
     "TABLE_6_CONFIGS",
@@ -18,4 +19,5 @@ __all__ = [
     "get_ablation_config",
     "AblationResultFormatter",
     "AblationExperimentRunner",
+    "DriveSyncManager",
 ]
